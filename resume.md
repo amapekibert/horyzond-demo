@@ -6,7 +6,7 @@ Last local commit: `feat(p3): add deterministic core and scene`.
 
 ## Resume next
 
-Start **P4 — Four independent Lua layout profiles**. Define a host-validated provider contract, state serialization, fallback placement, and the SPATIAL, STACKING, TILING, and SCROLLING profile implementations. Preserve each workspace's profile state across switches.
+Continue **P4 — Four independent Lua layout profiles**. `wm-layout` now has independent native recovery engines for all four profiles. Next, add the host-validated Lua provider contract, state serialization, workspace profile switching, profile-specific persistent state, and apply validated layout results to `wm-scene`.
 
 ## Phase checklist
 
@@ -16,7 +16,7 @@ Start **P4 — Four independent Lua layout profiles**. Define a host-validated p
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete after the pending verification and commit | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Workspace switching, desired-versus-committed configure state, and real event-loop dispatch remain for later protocol work. |
-| P4 | Not started | Lua provider contract; SPATIAL, STACKING, TILING, and SCROLLING implementations; state migration and fallback placement. |
+| P4 | In progress after the pending verification and commit | Native fallback engines now cover SPATIAL, SCROLLING, TILING, and STACKING. Lua provider execution, state serialization, state migration, and core/scene integration remain. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |

@@ -310,6 +310,13 @@ name = "wm-diagnostics"
 version = "0.1.0"
 
 [[package]]
+name = "wm-layout"
+version = "0.1.0"
+dependencies = [
+ "wm-types",
+]
+
+[[package]]
 name = "wm-render"
 version = "0.1.0"
 dependencies = [
