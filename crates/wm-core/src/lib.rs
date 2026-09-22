@@ -57,6 +57,7 @@ pub struct CoreState {
     workspaces: BTreeMap<WorkspaceId, Workspace>,
     windows: BTreeSet<WindowId>,
     active_workspace: WorkspaceId,
+    next_workspace: u64,
 }
 impl Default for CoreState {
     fn default() -> Self {
@@ -68,11 +69,31 @@ impl Default for CoreState {
             workspaces,
             windows: BTreeSet::new(),
             active_workspace: id,
+            next_workspace: 2,
         }
     }
 }
 
 impl CoreState {
+    /// Creates an empty workspace and returns its stable session ID.
+    pub fn create_workspace(&mut self) -> WorkspaceId {
+        let id = WorkspaceId::new(self.next_workspace);
+        self.next_workspace += 1;
+        self.workspaces.insert(id, Workspace::new(id));
+        id
+    }
+    /// Makes an existing workspace active.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the requested workspace does not exist.
+    pub fn switch_workspace(&mut self, workspace: WorkspaceId) -> Result<(), CoreError> {
+        if !self.workspaces.contains_key(&workspace) {
+            return Err(CoreError::UnknownWorkspace(workspace));
+        }
+        self.active_workspace = workspace;
+        Ok(())
+    }
     /// Applies one normalized backend event in order.
     ///
     /// # Errors
@@ -180,12 +201,14 @@ impl CoreState {
 pub enum CoreError {
     AlreadyMapped(WindowId),
     NotMapped(WindowId),
+    UnknownWorkspace(WorkspaceId),
 }
 impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AlreadyMapped(id) => write!(f, "{id} is already mapped"),
             Self::NotMapped(id) => write!(f, "{id} is not mapped"),
+            Self::UnknownWorkspace(id) => write!(f, "workspace {} does not exist", id.0),
         }
     }
 }
@@ -238,6 +261,31 @@ mod tests {
                 .scene
                 .pick(wm_types::Point::new(25.0, 25.0).expect("point"))
                 .is_some()
+        );
+    }
+    #[test]
+    fn workspaces_keep_independent_scene_state() {
+        let mut core = CoreState::default();
+        let first = WindowId::new(1);
+        core.apply_event(BackendEvent::WindowMapped(first))
+            .expect("map");
+        core.set_geometry(first, Rect::new(0.0, 0.0, 10.0, 10.0).expect("rect"))
+            .expect("geometry");
+        let second_workspace = core.create_workspace();
+        core.switch_workspace(second_workspace).expect("switch");
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
+            None
+        );
+        core.switch_workspace(super::WorkspaceId::new(1))
+            .expect("switch back");
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
+            Some(first)
         );
     }
 }
