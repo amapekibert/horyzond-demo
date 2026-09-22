@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use wm_backend::BackendEvent;
-use wm_layout::{LayoutInput, LayoutProfile, builtin};
+use wm_layout::{LayoutEngine, LayoutInput, LayoutProfile, builtin};
 use wm_scene::{Camera2D, Scene};
 use wm_types::{OutputId, OutputInfo, Rect, WindowId};
 
@@ -159,15 +159,21 @@ impl CoreState {
     }
     /// Switches profile and applies the corresponding layout to all mapped windows.
     pub fn set_layout_profile(&mut self, profile: LayoutProfile, bounds: Rect) {
+        let engine = builtin(profile);
+        self.apply_layout(engine.as_ref(), bounds);
+    }
+    /// Applies any configured or built-in profile provider to the active workspace.
+    pub fn apply_layout(&mut self, engine: &dyn LayoutEngine, bounds: Rect) {
         let windows = self.windows.iter().copied().collect::<Vec<_>>();
         let workspace = self.active_workspace_mut();
+        let profile = engine.profile();
         workspace.profile = profile;
         let existing = workspace
             .profile_geometry
             .entry(profile)
             .or_default()
             .clone();
-        let result = builtin(profile).calculate(&LayoutInput {
+        let result = engine.calculate(&LayoutInput {
             windows: &windows,
             bounds,
             existing: &existing,

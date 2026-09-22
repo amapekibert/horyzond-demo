@@ -6,7 +6,7 @@ Last local commit: `feat(p3): add deterministic core and scene`.
 
 ## Resume next
 
-Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has independent native recovery engines and `LuaLayout` can execute restricted profile files, validate their rectangles, and fall back safely; `wm-core` has multiple independent workspaces with retained per-profile geometry. Next, connect configured Lua files to profile selection and add state serialization/migration.
+Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has independent native recovery engines and `LuaLayout` can execute restricted profile files, validate their rectangles, and fall back safely; `wm-core` has multiple independent workspaces and can apply any `LayoutEngine`. Next, parse configured profile paths for automatic Lua provider selection and add state serialization/migration.
 
 ## Phase checklist
 
