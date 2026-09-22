@@ -2,7 +2,7 @@
 
 Horyzond is a Rust window manager and compositor under development. It will provide four independent workspace profiles: SPATIAL, SCROLLING, TILING, and STACKING. Wayland with OpenGL is the first graphical target; native X11 and Vulkan are planned extensions behind stable neutral contracts.
 
-The project is licensed under [0BSD](LICENSE). The repositories in `examples/` are design references only. They keep their own licenses and are not compiled or distributed as Horyzond code.
+The project is licensed under [WTFPL](LICENSE). The repositories in `examples/` are design references only. They keep their own licenses and are not compiled or distributed as Horyzond code.
 
 ## Current status
 
