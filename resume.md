@@ -1,8 +1,8 @@
 # Horyzond resume point
 
-Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**.
+Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**. P4 is actively in progress.
 
-Last local commit: `feat(p3): add deterministic core and scene`.
+Last local commit: `feat(p4): apply configured layout engines`.
 
 ## Resume next
 
@@ -15,7 +15,7 @@ Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has indepe
 | P0 | Complete | No functional work. Revisit contracts only when real P6 frame ownership proves an adjustment necessary. |
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
-| P3 | Complete after the pending verification and commit | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Workspace switching, desired-versus-committed configure state, and real event-loop dispatch remain for later protocol work. |
+| P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
 | P4 | In progress after the pending verification and commit | Native fallback engines, versioned Lua contracts, and a restricted validated `LuaLayout` runtime cover SPATIAL, SCROLLING, TILING, and STACKING; active-profile application, per-profile geometry retention, and independent multi-workspace scenes are wired into core. Configured provider selection, state serialization, and state migration remain. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
