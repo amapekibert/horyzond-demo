@@ -6,7 +6,7 @@ The project is licensed under [0BSD](LICENSE). The repositories in `examples/` a
 
 ## Current status
 
-P0 through P2 are implemented: the repository has a modular headless foundation, non-destructive configuration bootstrap, structured diagnostics, and a bounded Lua 5.4 configuration loader with `source()` imports and transactional polling reload. This is still not yet a usable compositor.
+P0 through P3 are implemented: the repository has a modular headless foundation, bounded Lua configuration reload, deterministic workspace lifecycle state, camera projection, scene snapshots, picking, and damage tracking. This is still not yet a usable compositor.
 
 ## Development roadmap
 
@@ -15,8 +15,8 @@ P0 through P2 are implemented: the repository has a modular headless foundation,
 | P0 | Workspace, neutral contracts, headless verification | Complete |
 | P1 | First-run configuration bootstrap, session and crash diagnostics | Complete |
 | P2 | Lua configuration, `source()`, validation, live reload | Complete |
-| P3 | Headless core, workspaces, camera, scene | Next |
-| P4 | SPATIAL, SCROLLING, TILING, STACKING layout providers | Planned |
+| P3 | Headless core, workspaces, camera, scene | Complete |
+| P4 | SPATIAL, SCROLLING, TILING, STACKING layout providers | Next |
 | P5 | Modes, rules, hooks, IPC, `horyctl` | Planned |
 | P6 | Nested Wayland session and OpenGL renderer | Planned |
 | P7 | DRM/KMS, libinput, standalone Wayland | Planned |
@@ -60,7 +60,8 @@ The current `cargo run` command only demonstrates P0 composition with a virtual 
 - [x] Install default configuration without replacing user files.
 - [x] Create `latest.log`, archived session logs, and crash reports.
 - [x] Implement sandboxed Lua configuration with imports and transactional reload.
-- [ ] Build the headless core and all four layouts.
+- [x] Build the deterministic headless core, scene, camera, and damage foundations.
+- [ ] Build all four layout providers.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow

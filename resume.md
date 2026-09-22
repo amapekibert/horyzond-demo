@@ -1,14 +1,12 @@
 # Horyzond resume point
 
-Last completed phase: **P2 — Modular Lua configuration and safe live reload**.
+Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**.
 
-Last local commit: `feat(p2): add safe Lua configuration reload`.
+Last local commit: `feat(p3): add deterministic core and scene`.
 
 ## Resume next
 
-Start **P3 — Headless runtime, workspace state, camera, and scene**. Add `wm-core` and `wm-scene`, deterministic command/event processing, workspace and focus lifecycle, desired versus committed geometry, camera forward/inverse transforms, picking, scene snapshots, and baseline damage tracking.
-
-P2 currently supplies a bounded Lua 5.4 loader, relative root-confined `source()` imports, cycle detection, memory/instruction limits, candidate generations, and dependency polling. Integrate it with a real event-loop watcher and configuration schema validation when P3 introduces a coordinator; preserve its transactional last-valid-candidate behavior.
+Start **P4 — Four independent Lua layout profiles**. Define a host-validated provider contract, state serialization, fallback placement, and the SPATIAL, STACKING, TILING, and SCROLLING profile implementations. Preserve each workspace's profile state across switches.
 
 ## Phase checklist
 
@@ -16,8 +14,8 @@ P2 currently supplies a bounded Lua 5.4 loader, relative root-confined `source()
 | --- | --- | --- |
 | P0 | Complete | No functional work. Revisit contracts only when real P6 frame ownership proves an adjustment necessary. |
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
-| P2 | Complete after the pending verification and commit | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. Schema validation, OS notification debounce, and event-loop integration await P3. |
-| P3 | Not started | `wm-core`, deterministic lifecycle/workspace state, camera/scene transforms, damage, and recording-renderer scenarios. |
+| P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
+| P3 | Complete after the pending verification and commit | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Workspace switching, desired-versus-committed configure state, and real event-loop dispatch remain for later protocol work. |
 | P4 | Not started | Lua provider contract; SPATIAL, STACKING, TILING, and SCROLLING implementations; state migration and fallback placement. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |

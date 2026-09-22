@@ -1,0 +1,17 @@
+[package]
+name = "wm-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Deterministic workspace and window lifecycle coordinator for Horyzond."
+
+[dependencies]
+wm-backend = { path = "../wm-backend" }
+wm-scene = { path = "../wm-scene" }
+wm-types = { path = "../wm-types" }
+
+[lints]
+workspace = true

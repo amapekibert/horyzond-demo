@@ -8,6 +8,8 @@ members = [
     "crates/wm-diagnostics",
     "crates/wm-render",
     "crates/wm-script",
+    "crates/wm-scene",
+    "crates/wm-core",
 ]
 resolver = "3"
 
