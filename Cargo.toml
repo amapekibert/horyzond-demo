@@ -7,13 +7,14 @@ members = [
     "crates/wm-config",
     "crates/wm-diagnostics",
     "crates/wm-render",
+    "crates/wm-script",
 ]
 resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "0BSD"
 authors = ["Horyzond contributors"]
 repository = "https://github.com/amapekibert/horyzond"

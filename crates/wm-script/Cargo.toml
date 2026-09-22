@@ -1,15 +1,15 @@
 [package]
-name = "wm-config"
+name = "wm-script"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "First-run configuration bootstrap for Horyzond."
+description = "Bounded Lua 5.4 configuration runtime for Horyzond."
 
 [dependencies]
-wm-script = { path = "../wm-script" }
+mlua = { version = "0.12.1", features = ["lua54", "vendored"] }
 
 [lints]
 workspace = true

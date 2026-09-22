@@ -6,7 +6,7 @@ The project is licensed under [0BSD](LICENSE). The repositories in `examples/` a
 
 ## Current status
 
-P0 and P1 are implemented: the repository has a modular headless foundation plus non-destructive default configuration installation, a per-configuration runtime lock, structured session logs, archived prior logs, and crash-report primitives. This is still not yet a usable compositor.
+P0 through P2 are implemented: the repository has a modular headless foundation, non-destructive configuration bootstrap, structured diagnostics, and a bounded Lua 5.4 configuration loader with `source()` imports and transactional polling reload. This is still not yet a usable compositor.
 
 ## Development roadmap
 
@@ -14,8 +14,8 @@ P0 and P1 are implemented: the repository has a modular headless foundation plus
 | --- | --- | --- |
 | P0 | Workspace, neutral contracts, headless verification | Complete |
 | P1 | First-run configuration bootstrap, session and crash diagnostics | Complete |
-| P2 | Lua configuration, `source()`, validation, live reload | Next |
-| P3 | Headless core, workspaces, camera, scene | Planned |
+| P2 | Lua configuration, `source()`, validation, live reload | Complete |
+| P3 | Headless core, workspaces, camera, scene | Next |
 | P4 | SPATIAL, SCROLLING, TILING, STACKING layout providers | Planned |
 | P5 | Modes, rules, hooks, IPC, `horyctl` | Planned |
 | P6 | Nested Wayland session and OpenGL renderer | Planned |
@@ -41,7 +41,7 @@ examples/                    Upstream design references, excluded from the build
 
 ## Build and test
 
-Horyzond currently requires Rust 1.85 or later.
+Horyzond currently requires Rust 1.88 or later.
 
 ```sh
 cargo fmt --check
@@ -59,7 +59,7 @@ The current `cargo run` command only demonstrates P0 composition with a virtual 
 - [x] Document capability and coordinate contracts.
 - [x] Install default configuration without replacing user files.
 - [x] Create `latest.log`, archived session logs, and crash reports.
-- [ ] Implement sandboxed Lua configuration with imports and transactional reload.
+- [x] Implement sandboxed Lua configuration with imports and transactional reload.
 - [ ] Build the headless core and all four layouts.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 

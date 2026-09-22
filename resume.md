@@ -1,22 +1,22 @@
 # Horyzond resume point
 
-Last completed phase: **P1 — First-run bootstrap, session logs, and crash diagnostics**.
+Last completed phase: **P2 — Modular Lua configuration and safe live reload**.
 
-Last local commit: `feat(p1): bootstrap configuration and diagnostics`.
+Last local commit: `feat(p2): add safe Lua configuration reload`.
 
 ## Resume next
 
-Start **P2 — Modular Lua configuration and safe live reload**. Add `wm-script` and extend `wm-config` with sandboxed Lua 5.4, the documented `source()` API, dependency graph and import-cycle detection, schema validation, candidate generations, file watching, debounce, and atomic reload commits.
+Start **P3 — Headless runtime, workspace state, camera, and scene**. Add `wm-core` and `wm-scene`, deterministic command/event processing, workspace and focus lifecycle, desired versus committed geometry, camera forward/inverse transforms, picking, scene snapshots, and baseline damage tracking.
 
-Keep P1's current first-run files as the one source of shipped defaults. Do not introduce a second set of hardcoded Rust configuration values. Reload must preserve the prior valid generation and must exclude logs, crashes, runtime state, and locks from watched paths.
+P2 currently supplies a bounded Lua 5.4 loader, relative root-confined `source()` imports, cycle detection, memory/instruction limits, candidate generations, and dependency polling. Integrate it with a real event-loop watcher and configuration schema validation when P3 introduces a coordinator; preserve its transactional last-valid-candidate behavior.
 
 ## Phase checklist
 
 | Phase | Status | Remaining work |
 | --- | --- | --- |
 | P0 | Complete | No functional work. Revisit contracts only when real P6 frame ownership proves an adjustment necessary. |
-| P1 | Complete after the pending verification and commit | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, and a process panic hook. A durable unclean-session marker and bounded background log writer are deferred to P10 hardening. |
-| P2 | Not started | `mlua` sandbox, `source()` dependency graph, schema validation, file watching, debounce, candidate reload generations, and recovery. |
+| P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
+| P2 | Complete after the pending verification and commit | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. Schema validation, OS notification debounce, and event-loop integration await P3. |
 | P3 | Not started | `wm-core`, deterministic lifecycle/workspace state, camera/scene transforms, damage, and recording-renderer scenarios. |
 | P4 | Not started | Lua provider contract; SPATIAL, STACKING, TILING, and SCROLLING implementations; state migration and fallback placement. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |

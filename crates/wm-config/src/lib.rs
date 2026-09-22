@@ -7,6 +7,9 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+use wm_script::{LoadedScript, ScriptLimits, ScriptLoader};
 
 /// Resolves the Horyzond configuration directory.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -132,6 +135,113 @@ pub fn install_defaults(config: &ConfigPath) -> Result<BootstrapReport, ConfigEr
     Ok(report)
 }
 
+/// A transactional configuration candidate manager using filesystem polling.
+///
+/// The manager is deliberately independent of compositor state: callers apply
+/// a returned generation only at their own safe event-loop boundary.
+#[derive(Debug)]
+pub struct ConfigManager {
+    loader: ScriptLoader,
+    active: Option<LoadedScript>,
+    fingerprints: std::collections::BTreeMap<PathBuf, FileFingerprint>,
+    generation: u64,
+}
+
+/// The outcome of an initial load or a reload attempt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReloadOutcome {
+    /// The active candidate remains current.
+    Unchanged,
+    /// A fully evaluated candidate replaced the previous generation.
+    Applied { generation: u64 },
+    /// The previous valid candidate remains active; the diagnostic is safe to log.
+    Rejected { diagnostic: String },
+}
+
+impl ConfigManager {
+    /// Creates a manager with bounded Lua evaluation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the configuration root cannot be canonicalized.
+    pub fn new(config: &ConfigPath, limits: ScriptLimits) -> Result<Self, ConfigError> {
+        Ok(Self {
+            loader: ScriptLoader::new(config.as_path(), limits).map_err(ConfigError::Script)?,
+            active: None,
+            fingerprints: std::collections::BTreeMap::new(),
+            generation: 0,
+        })
+    }
+
+    /// Loads the initial candidate without changing an existing valid candidate on failure.
+    pub fn load_initial(&mut self) -> ReloadOutcome {
+        self.reload()
+    }
+
+    /// Reloads only when a loaded dependency changed, was removed, or was replaced.
+    pub fn reload_if_changed(&mut self) -> ReloadOutcome {
+        if self.active.is_none()
+            || self
+                .fingerprints
+                .iter()
+                .any(|(path, saved)| match FileFingerprint::read(path) {
+                    Ok(current) => current != *saved,
+                    Err(_) => true,
+                })
+        {
+            self.reload()
+        } else {
+            ReloadOutcome::Unchanged
+        }
+    }
+
+    /// Forces an evaluation and commits it only after it succeeds.
+    pub fn reload(&mut self) -> ReloadOutcome {
+        match self.loader.load() {
+            Ok(candidate) => {
+                self.fingerprints = candidate
+                    .dependencies
+                    .iter()
+                    .filter_map(|path| {
+                        FileFingerprint::read(path)
+                            .ok()
+                            .map(|fingerprint| (path.clone(), fingerprint))
+                    })
+                    .collect();
+                self.active = Some(candidate);
+                self.generation += 1;
+                ReloadOutcome::Applied {
+                    generation: self.generation,
+                }
+            }
+            Err(error) => ReloadOutcome::Rejected {
+                diagnostic: error.to_string(),
+            },
+        }
+    }
+
+    /// Returns the active generation, or zero before the first valid load.
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FileFingerprint {
+    modified: Option<SystemTime>,
+    length: u64,
+}
+impl FileFingerprint {
+    fn read(path: &Path) -> io::Result<Self> {
+        let metadata = fs::metadata(path)?;
+        Ok(Self {
+            modified: metadata.modified().ok(),
+            length: metadata.len(),
+        })
+    }
+}
+
 fn write_if_absent(path: &Path, contents: &str) -> io::Result<bool> {
     let mut file = match OpenOptions::new().create_new(true).write(true).open(path) {
         Ok(file) => file,
@@ -227,6 +337,7 @@ pub enum ConfigError {
     MissingHomeDirectory,
     MissingRuntimeDirectory,
     AlreadyRunning(PathBuf),
+    Script(wm_script::ScriptError),
     Io(io::Error),
 }
 impl From<io::Error> for ConfigError {
@@ -246,6 +357,7 @@ impl fmt::Display for ConfigError {
                     path.display()
                 )
             }
+            Self::Script(error) => error.fmt(formatter),
             Self::Io(error) => error.fmt(formatter),
         }
     }
@@ -316,5 +428,44 @@ mod tests {
             fs::remove_dir_all(root).expect("cleanup root");
         }
         fs::remove_dir_all(runtime).expect("cleanup runtime");
+    }
+
+    #[test]
+    fn invalid_reload_preserves_the_last_valid_generation() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("root");
+        fs::write(
+            root.join("config.lua"),
+            "settings = {}\nmodes = {}\nprofiles = {}\n",
+        )
+        .expect("valid config");
+        let config = ConfigPath::from_override(&root);
+        let mut manager = super::ConfigManager::new(&config, wm_script::ScriptLimits::default())
+            .expect("manager");
+        assert!(matches!(
+            manager.load_initial(),
+            super::ReloadOutcome::Applied { generation: 1 }
+        ));
+        fs::write(root.join("config.lua"), "this is not lua\n").expect("invalid config");
+        assert!(matches!(
+            manager.reload_if_changed(),
+            super::ReloadOutcome::Rejected { .. }
+        ));
+        assert_eq!(manager.generation(), 1);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn shipped_configuration_loads_as_one_candidate() {
+        let root = temporary_root();
+        let config = ConfigPath::from_override(&root);
+        install_defaults(&config).expect("install defaults");
+        let mut manager = super::ConfigManager::new(&config, wm_script::ScriptLimits::default())
+            .expect("manager");
+        assert!(matches!(
+            manager.load_initial(),
+            super::ReloadOutcome::Applied { generation: 1 }
+        ));
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }
