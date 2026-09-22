@@ -4,6 +4,8 @@ members = [
     "crates/wm-types",
     "crates/wm-backend",
     "crates/wm-backend-headless",
+    "crates/wm-config",
+    "crates/wm-diagnostics",
     "crates/wm-render",
 ]
 resolver = "3"
@@ -39,6 +41,8 @@ default-run = "horyzond"
 [dependencies]
 wm-backend = { path = "crates/wm-backend" }
 wm-backend-headless = { path = "crates/wm-backend-headless" }
+wm-config = { path = "crates/wm-config" }
+wm-diagnostics = { path = "crates/wm-diagnostics" }
 wm-render = { path = "crates/wm-render" }
 wm-types = { path = "crates/wm-types" }
 

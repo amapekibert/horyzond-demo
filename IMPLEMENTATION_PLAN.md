@@ -97,7 +97,7 @@ Create crates when their implementation milestone begins; avoid a workspace full
 | `wm-render-gl` | GL resources, imports, shader compilation | Render contracts; platform interop remains adapter-local |
 | `wm-render-vulkan` | Vulkan resources, synchronization, pipeline compilation | Render contracts; added in P12 |
 | `wm-ipc` | Versioned wire schema, socket transport, subscriptions | Neutral commands/events; never a dependency of layout algorithms |
-| `wm-cli` | `wmctl` CLI | IPC schema/client; no compositor runtime dependency |
+| `wm-cli` | `horyctl` CLI | IPC schema/client; no compositor runtime dependency |
 | `wm-diagnostics` | Session log writer, crash metadata, recovery markers | No dependency on compositor internals; receives snapshots |
 | `src/main.rs` | Startup/shutdown ordering and composition | Concrete modules selected by build features/runtime options |
 | `config/` | Shipped Lua files and renderer-specific shader assets | Plain editable files, not compiled policy code |
@@ -191,7 +191,7 @@ profiles = {
 7. On error, keep the previous configuration and resources and report why. On invalid initial configuration, start with known-good packaged defaults in an explicitly reported recovery mode without replacing broken user files.
 8. Watch dependencies and their parent directories to catch editor atomic-save renames, deletion, recreation, and newly referenced files. Debounce bursts; discard superseded candidate generations. Detect changes during a load and retry rather than commit a mixed candidate.
 9. Exclude `latest.log`, `logs/`, `crashes/`, `state/`, lock files, and temporary files from reload triggers. Rewatch after configuration-directory replacement. A missing root/default file triggers the same non-destructive repair process; a missing custom import reports an error and preserves the active generation.
-10. Support `wmctl config check`, `reload`, and `status`, exposing generation, last result, and diagnostics. Provide polling/manual reload fallback when filesystem notifications fail.
+10. Support `horyctl config check`, `reload`, and `status`, exposing generation, last result, and diagnostics. Provide polling/manual reload fallback when filesystem notifications fail.
 
 Bindings, modes, rules, profile settings/scripts, themes, hooks, shader assets, and logging filters are reloadable. Backend selection, graphics API, and process-level options may require restart: reject such a mixed candidate atomically with a clear restart-required diagnostic instead of partially applying it. Runtime output modes have their own tested apply/revert transaction once supported. Do not claim that a configuration transaction can roll back an already-spawned external process.
 
@@ -237,7 +237,7 @@ Keep protocol mechanics, frame scheduling, validated state ownership, and numeri
 
 - Record short decisions for ownership, coordinate spaces, capabilities, Lua API, reload atomicity, logging guarantees, and native X11 versus Xwayland.
 - Convert the starter package into a workspace with only the foundational crates needed now. Preserve existing user work and the reference architecture document.
-- Set package names/binaries (`horyzond`, `wmctl`), Rust edition/MSRV, formatting/lint policy, and shared `license = "0BSD"`. Keep the existing BSD Zero Clause license text.
+- Set package names/binaries (`horyzond`, `horyctl`), Rust edition/MSRV, formatting/lint policy, and shared `license = "0BSD"`. Keep the existing BSD Zero Clause license text.
 - Define neutral IDs, errors, event/command vocabulary, and contract sketches. Keep device buffer/sync details provisional until P6 evidence.
 - Add feature boundaries for headless, Wayland, GL, and later X11/Vulkan. A headless build must not pull in GPU/display system libraries.
 - Verify dependency choices and licensing; document that examples are references excluded from shipped artifacts.
@@ -267,7 +267,7 @@ Keep protocol mechanics, frame scheduling, validated state ownership, and numeri
 - Add bounded Lua execution and validation of settings, bindings, rules, profile descriptors, and hooks.
 - Implement file notification/debounce, candidate generations, prepare/commit/abort, startup recovery, and excluded runtime paths.
 - Define a reload-participant contract now; wire scene/layout/renderer participants when those modules exist. Do not claim a shader is reloadable before a renderer can validate it.
-- Add an offline configuration-check entrypoint before IPC exists; later reuse it in `wmctl config check`.
+- Add an offline configuration-check entrypoint before IPC exists; later reuse it in `horyctl config check`.
 
 **Exit gate:** valid edits atomically change the active generation; invalid syntax, import cycles, missing imports, runaway scripts, memory limits, atomic editor saves, and directory recreation preserve a usable runtime. Log writes never cause reload loops. Reload causes no process spawn side effects.
 
@@ -310,7 +310,7 @@ Keep protocol mechanics, frame scheduling, validated state ownership, and numeri
 - Track consumed key/button presses and their releases consistently across mode/focus changes; avoid stuck modifiers and leaking modal commands to clients.
 - Implement ordered window rules with explicit priority/stop behavior, metadata-change reevaluation, and no recursive rule-trigger loops. Use bounded matching and cache compiled patterns.
 - Implement versioned JSON IPC with request IDs, framed messages, size limits, same-user access, bounded subscriptions, and deterministic errors.
-- Implement `wmctl status`, window/workspace queries, profile selection, camera commands, configuration check/reload/status, and pending spawn.
+- Implement `horyctl status`, window/workspace queries, profile selection, camera commands, configuration check/reload/status, and pending spawn.
 - Represent process launch as executable plus argument array. Shell interpretation must be an explicit action, not an automatic concatenation of user input.
 - Dispatch hooks after committed events with quotas and recursion limits; distinguish startup hooks from reload hooks.
 
@@ -357,7 +357,7 @@ Keep protocol mechanics, frame scheduling, validated state ownership, and numeri
 - Implement pending-spawn selection, world-coordinate preview rectangle, configurable screen-space minimum threshold, cancel/timeout, and non-SPATIAL fallback placement.
 - Associate a launch with its window using a bounded launch token and protocol/process metadata where available. `app_id` alone is not unique; define ambiguous, delayed, multi-window, failed, and single-instance launch behavior.
 - Send requested initial size through the backend's normal configure flow. Avoid an initial placement jump where possible, but do not promise that clients will honor an exact size or map synchronously.
-- Define launcher integration through `wmctl`; layer-shell alone does not make third-party launchers emit Horyzond IPC commands.
+- Define launcher integration through `horyctl`; layer-shell alone does not make third-party launchers emit Horyzond IPC commands.
 
 **Exit gate:** a launcher/panel works; exclusive zones affect applicable layouts; clipboard and drag-and-drop work; a window can be launched into a selected rectangle; failed/ambiguous launch matching cannot move an unrelated window; lock behavior passes dedicated scenarios.
 

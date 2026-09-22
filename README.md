@@ -6,18 +6,18 @@ The project is licensed under [0BSD](LICENSE). The repositories in `examples/` a
 
 ## Current status
 
-P0 is implemented: the repository is a Cargo workspace with platform-neutral types, separate window-system and renderer contracts, a deterministic headless adapter, and a recording renderer. This is a foundation, not yet a usable compositor.
+P0 and P1 are implemented: the repository has a modular headless foundation plus non-destructive default configuration installation, a per-configuration runtime lock, structured session logs, archived prior logs, and crash-report primitives. This is still not yet a usable compositor.
 
 ## Development roadmap
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | P0 | Workspace, neutral contracts, headless verification | Complete |
-| P1 | First-run configuration bootstrap, session and crash diagnostics | Next |
-| P2 | Lua configuration, `source()`, validation, live reload | Planned |
+| P1 | First-run configuration bootstrap, session and crash diagnostics | Complete |
+| P2 | Lua configuration, `source()`, validation, live reload | Next |
 | P3 | Headless core, workspaces, camera, scene | Planned |
 | P4 | SPATIAL, SCROLLING, TILING, STACKING layout providers | Planned |
-| P5 | Modes, rules, hooks, IPC, `wmctl` | Planned |
+| P5 | Modes, rules, hooks, IPC, `horyctl` | Planned |
 | P6 | Nested Wayland session and OpenGL renderer | Planned |
 | P7 | DRM/KMS, libinput, standalone Wayland | Planned |
 | P8 | Desktop protocols and spatial spawn workflow | Planned |
@@ -57,8 +57,8 @@ The current `cargo run` command only demonstrates P0 composition with a virtual 
 - [x] Create platform-neutral module boundaries.
 - [x] Add a graphics-free headless verification path.
 - [x] Document capability and coordinate contracts.
-- [ ] Install default configuration without replacing user files.
-- [ ] Create `latest.log`, archived session logs, and crash reports.
+- [x] Install default configuration without replacing user files.
+- [x] Create `latest.log`, archived session logs, and crash reports.
 - [ ] Implement sandboxed Lua configuration with imports and transactional reload.
 - [ ] Build the headless core and all four layouts.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.

@@ -64,7 +64,7 @@ During infinite zooming, cursor coordinates on the physical monitor are projecte
 | `TILING`   | Layout algorithm (BSP / master-stack)  | Layout computes rectangle coordinates ensuring visible output bounds are tiled without overlap. |
 | `STACKING` | User control (drag/resize + z-order)    | Traditional desktop model (KWin / labwc style): floating overlapping windows, manual positioning, and interactive z-order / focus stack. |
 
-Each profile is implemented as an independent `.lua` script in `~/.config/horyzond/layouts/`, conforming to a unified contract (§6). Switching profiles for an active workspace is a runtime operation (`wmctl layout set <profile>`) without restarting the compositor.
+Each profile is implemented as an independent `.lua` script in `~/.config/horyzond/layouts/`, conforming to a unified contract (§6). Switching profiles for an active workspace is a runtime operation (`horyctl layout set <profile>`) without restarting the compositor.
 
 ---
 
@@ -80,7 +80,7 @@ The central hub owning system state and coordinating modules through events with
   - `Layout Select` — quick profile switching (`SPATIAL ↔ SCROLLING ↔ TILING ↔ STACKING`) for the active workspace.
 - **Workspace Manager** — virtual workspaces mapped to display outputs; each workspace maintains its active layout profile and its own scene-graph subtree.
 - **Spawn-by-Rectangle (SPATIAL-specific)** — interactive application launching mechanism in `SPATIAL` profile:
-  1. The user opens an external app launcher (via `wlr-layer-shell`, such as rofi, wofi, or fuzzel — communicating via IPC). The launcher sends `wmctl spawn-pending <app_id> <exec_cmd>` to `wm-core` via `wm-ipc`.
+  1. The user opens an external app launcher (via `wlr-layer-shell`, such as rofi, wofi, or fuzzel — communicating via IPC). The launcher sends `horyctl spawn-pending <app_id> <exec_cmd>` to `wm-core` via `wm-ipc`.
   2. `wm-core` transitions to `SpatialSpawnPending { app_id, exec_cmd }` mode; the cursor changes to a crosshair / "draw rectangle" indicator.
   3. The user holds the right mouse button on an empty canvas area and drags — `wm-core` renders an interactive preview bounding box on the scene overlay from the initial click point to current cursor position, projecting screen pixels into world coordinates via $Camera^{-1}$.
   4. Upon releasing the right button: computed `(world_x, world_y, w, h)` is locked, `wm-core` spawns the application process (`std::process::Command`), and when the client maps its first `xdg_surface`/`xdg_toplevel`, `wm-scene` immediately assigns this defined world rectangle (eliminating jumping artifacts).
@@ -252,7 +252,6 @@ Modular user configuration with runtime hot-reloading:
 return {
   normal = {
     binds = {
-      { key = "Super+Return", action = "spawn", arg = "ghostty" },
       { key = "Super+Enter",  action = "spawn", arg = "ghostty" },
       { key = "Super+h",     action = "focus_left" },
       { key = "Super+Space", action = "switch_mode", arg = "layout_select" },
@@ -299,7 +298,7 @@ horyzond/
 │   ├── wm-scene/                     # 2D Camera, SceneGraph, Damage Tracking
 │   ├── wm-layout/                    # LayoutEngine trait, Lua sandbox runtime, built-in fallbacks
 │   ├── wm-ipc/                       # Unix Domain Socket IPC and protocol definitions
-│   └── wm-cli/                       # wmctl CLI client
+│   └── wm-cli/                       # horyctl CLI client
 └── src/
     └── main.rs                       # Daemon entrypoint, wiring, and coordinator event loop
 ```
@@ -312,7 +311,7 @@ horyzond/
 - **Phase 1 — 2D Spatial Camera & Scene Graph**: Camera forward/inverse projections ($Camera^{-1}$), scene graph tree, damage coalescing.
 - **Phase 2 — Layout Engine & Lua Sandbox**: 4 canonical layout profiles (SPATIAL, SCROLLING, TILING, STACKING) in Lua and native Rust, instruction limits.
 - **Phase 3 — Modal Input, Rules & Hot-Reload**: Modal state machine (`Normal`, `Insert`, `Resize`, `LayoutSelect`, `SpatialSpawnPending`), window rules engine, configuration file watcher.
-- **Phase 4 — IPC Subsystem & CLI**: Unix Domain Socket server, JSON request/response handling, `wmctl` CLI.
+- **Phase 4 — IPC Subsystem & CLI**: Unix Domain Socket server, JSON request/response handling, `horyctl` CLI.
 - **Phase 5 — Wayland Display Backend**: Wayland server globals, DRM/KMS mode-setting, libinput device management.
 - **Phase 6 — OpenGL Renderer & Direct Scanout**: EGL context on GBM device, DMA-BUF import, GLSL shader hot-reloading, direct scanout fast-path.
 - **Phase 7 — Surface Protocols & Spawn Workflow**: `xdg-shell`, `wlr-layer-shell`, interactive spawn-by-rectangle right-click drag flow.

@@ -1,0 +1,19 @@
+-- Import other files.
+source("keybinds.lua")
+source("rules.lua")
+source("theme.lua")
+
+-- Default settings. These values are loaded in P2.
+settings = {
+  default_profile = "spatial",
+  reload = { enabled = true, debounce_ms = 150 },
+  logging = { level = "trace", detail = "full" },
+}
+
+modes = source("modes.lua")
+profiles = {
+  spatial = "layouts/spatial.lua",
+  scrolling = "layouts/scrolling.lua",
+  tiling = "layouts/tiling.lua",
+  stacking = "layouts/stacking.lua",
+}

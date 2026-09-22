@@ -8,6 +8,8 @@ version = "0.1.0"
 dependencies = [
  "wm-backend",
  "wm-backend-headless",
+ "wm-config",
+ "wm-diagnostics",
  "wm-render",
  "wm-types",
 ]
@@ -26,6 +28,14 @@ dependencies = [
  "wm-backend",
  "wm-types",
 ]
+
+[[package]]
+name = "wm-config"
+version = "0.1.0"
+
+[[package]]
+name = "wm-diagnostics"
+version = "0.1.0"
 
 [[package]]
 name = "wm-render"
