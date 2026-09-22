@@ -66,6 +66,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Select configured providers through the neutral core with an independent native fallback for each profile.
 - [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
 - [x] Keep explicit STACKING paint order independent from focus.
+- [x] Add validated TILING master ratios and gaps to the native fallback and Lua profile.
 - [ ] Add profile-specific navigation, placement, transient, and resize state beyond the shared geometry baseline.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 

@@ -202,36 +202,111 @@ impl LayoutEngine for ScrollingLayout {
     }
 }
 /// Arranges a master pane plus an equal vertical stack.
-#[derive(Debug, Default)]
-pub struct TilingLayout;
+#[derive(Clone, Copy, Debug)]
+pub struct TilingLayout {
+    master_ratio: f64,
+    gap: f64,
+}
+impl Default for TilingLayout {
+    fn default() -> Self {
+        Self {
+            master_ratio: 0.5,
+            gap: 0.0,
+        }
+    }
+}
+impl TilingLayout {
+    /// Creates a master-stack layout with a positive inner gap.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the ratio is outside `(0, 1)` or either setting
+    /// is non-finite, or when the gap is negative.
+    pub fn new(master_ratio: f64, gap: f64) -> Result<Self, TilingLayoutError> {
+        if !master_ratio.is_finite() || master_ratio <= 0.0 || master_ratio >= 1.0 {
+            return Err(TilingLayoutError::InvalidMasterRatio);
+        }
+        if !gap.is_finite() || gap < 0.0 {
+            return Err(TilingLayoutError::InvalidGap);
+        }
+        Ok(Self { master_ratio, gap })
+    }
+
+    /// Returns the fraction of available width allocated to the master pane.
+    #[must_use]
+    pub const fn master_ratio(self) -> f64 {
+        self.master_ratio
+    }
+
+    /// Returns the requested gap between adjacent panes.
+    #[must_use]
+    pub const fn gap(self) -> f64 {
+        self.gap
+    }
+}
+/// Invalid native master-stack layout settings.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TilingLayoutError {
+    InvalidMasterRatio,
+    InvalidGap,
+}
+impl std::fmt::Display for TilingLayoutError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidMasterRatio => {
+                formatter.write_str("master ratio must be finite and in (0, 1)")
+            }
+            Self::InvalidGap => formatter.write_str("gap must be finite and non-negative"),
+        }
+    }
+}
+impl std::error::Error for TilingLayoutError {}
 impl LayoutEngine for TilingLayout {
     fn profile(&self) -> LayoutProfile {
         LayoutProfile::Tiling
     }
     fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
         let n = input.windows.len();
+        if n <= 1 {
+            return input
+                .windows
+                .iter()
+                .copied()
+                .map(|window| (window, input.bounds))
+                .collect();
+        }
+        let horizontal_gap = self.gap.min(input.bounds.width / 3.0);
+        let available_width = input.bounds.width - horizontal_gap;
+        let master_width = available_width * self.master_ratio;
+        let stack_width = available_width - master_width;
+        let stack_count = n - 1;
+        let vertical_gap = if stack_count <= 1 {
+            0.0
+        } else {
+            self.gap
+                .min(input.bounds.height / (2.0 * stack_count as f64))
+        };
+        let stack_height =
+            (input.bounds.height - vertical_gap * (stack_count - 1) as f64) / stack_count as f64;
         input
             .windows
             .iter()
             .enumerate()
             .map(|(i, id)| {
-                let r = if n <= 1 {
-                    input.bounds
-                } else if i == 0 {
+                let r = if i == 0 {
                     Rect::new(
                         input.bounds.x,
                         input.bounds.y,
-                        input.bounds.width / 2.0,
+                        master_width,
                         input.bounds.height,
                     )
                     .expect("master")
                 } else {
-                    let h = input.bounds.height / (n - 1) as f64;
                     Rect::new(
-                        input.bounds.x + input.bounds.width / 2.0,
-                        input.bounds.y + (i - 1) as f64 * h,
-                        input.bounds.width / 2.0,
-                        h,
+                        input.bounds.x + master_width + horizontal_gap,
+                        input.bounds.y + (i - 1) as f64 * (stack_height + vertical_gap),
+                        stack_width,
+                        stack_height,
                     )
                     .expect("stack")
                 };
@@ -276,7 +351,7 @@ pub fn builtin(profile: LayoutProfile) -> Box<dyn LayoutEngine> {
     match profile {
         LayoutProfile::Spatial => Box::new(SpatialLayout),
         LayoutProfile::Scrolling => Box::new(ScrollingLayout),
-        LayoutProfile::Tiling => Box::new(TilingLayout),
+        LayoutProfile::Tiling => Box::new(TilingLayout::default()),
         LayoutProfile::Stacking => Box::new(StackingLayout),
     }
 }
@@ -495,9 +570,30 @@ mod tests {
     fn tiling_has_no_overlap_in_stack() {
         let ids = [WindowId::new(1), WindowId::new(2), WindowId::new(3)];
         let existing = BTreeMap::new();
-        let result = TilingLayout.calculate(&input(&ids, &existing));
+        let result = TilingLayout::default().calculate(&input(&ids, &existing));
         assert!((result[&ids[0]].width - 50.).abs() < f64::EPSILON);
         assert!((result[&ids[1]].height - 50.).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn tiling_options_apply_master_ratio_and_gaps() {
+        let ids = [WindowId::new(1), WindowId::new(2), WindowId::new(3)];
+        let existing = BTreeMap::new();
+        let layout = TilingLayout::new(0.6, 10.0).expect("options");
+        let result = layout.calculate(&input(&ids, &existing));
+        assert!((layout.master_ratio() - 0.6).abs() < f64::EPSILON);
+        assert!((layout.gap() - 10.0).abs() < f64::EPSILON);
+        assert!((result[&ids[0]].width - 54.0).abs() < f64::EPSILON);
+        assert!((result[&ids[1]].x - 64.0).abs() < f64::EPSILON);
+        assert!((result[&ids[1]].height - 45.0).abs() < f64::EPSILON);
+        assert!((result[&ids[2]].y - 55.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn tiling_options_reject_invalid_values() {
+        assert!(TilingLayout::new(0.0, 0.0).is_err());
+        assert!(TilingLayout::new(1.0, 0.0).is_err());
+        assert!(TilingLayout::new(0.5, -1.0).is_err());
     }
     #[test]
     fn lua_provider_returns_validated_geometry() {
