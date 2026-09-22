@@ -297,4 +297,17 @@ mod tests {
         let result = layout.calculate(&input(&ids, &existing));
         assert!((result[&ids[0]].x - 7.0).abs() < f64::EPSILON);
     }
+    #[test]
+    fn invalid_lua_geometry_uses_builtin_fallback() {
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        let layout = LuaLayout {
+            profile: LayoutProfile::Tiling,
+            source:
+                "function calculate() return { [1] = { x = 0, y = 0, width = 0, height = 1 } } end"
+                    .to_owned(),
+        };
+        let result = layout.calculate(&input(&ids, &existing));
+        assert!((result[&ids[0]].width - 100.0).abs() < f64::EPSILON);
+    }
 }
