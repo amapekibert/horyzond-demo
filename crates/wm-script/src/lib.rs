@@ -1,7 +1,7 @@
 //! Sandboxed, bounded Lua loading with Horyzond's `source()` import function.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,6 +29,11 @@ impl Default for ScriptLimits {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoadedScript {
     pub dependencies: BTreeSet<PathBuf>,
+    /// Canonical profile-provider files selected by the `profiles` table.
+    ///
+    /// The paths are confined to the configuration root and are also included
+    /// in `dependencies`, so editing a provider triggers a configuration reload.
+    pub profile_paths: BTreeMap<String, PathBuf>,
 }
 
 /// Loads one configuration root and all files imported with `source()`.
@@ -93,8 +98,14 @@ impl ScriptLoader {
             .map_err(ScriptError::Lua)?;
         execute_file(&lua, &self.root, &state, "config.lua")?;
         validate_configuration(&lua)?;
+        let profile_paths = extract_profile_paths(&lua, &self.root)?;
+        state
+            .borrow_mut()
+            .dependencies
+            .extend(profile_paths.values().cloned());
         Ok(LoadedScript {
             dependencies: state.borrow().dependencies.clone(),
+            profile_paths,
         })
     }
 }
@@ -111,6 +122,29 @@ fn validate_configuration(lua: &Lua) -> Result<(), ScriptError> {
         }
     }
     Ok(())
+}
+
+fn extract_profile_paths(lua: &Lua, root: &Path) -> Result<BTreeMap<String, PathBuf>, ScriptError> {
+    let profiles = lua
+        .globals()
+        .get::<mlua::Table>("profiles")
+        .map_err(ScriptError::Lua)?;
+    let mut paths = BTreeMap::new();
+    for pair in profiles.pairs::<String, Value>() {
+        let (name, value) = pair.map_err(ScriptError::Lua)?;
+        let Value::String(relative) = value else {
+            return Err(ScriptError::Schema(format!(
+                "profiles.{name} must be a string path"
+            )));
+        };
+        let relative = relative.to_str().map_err(ScriptError::Lua)?;
+        let path = fs::canonicalize(root.join(relative.as_ref())).map_err(ScriptError::Io)?;
+        if !path.starts_with(root) {
+            return Err(ScriptError::OutsideRoot(path));
+        }
+        paths.insert(name, path);
+    }
+    Ok(paths)
 }
 
 #[derive(Default)]
@@ -235,5 +269,50 @@ mod tests {
                 .is_err()
         );
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolves_profile_files_and_watches_them() {
+        let root = root();
+        fs::create_dir_all(root.join("layouts")).expect("layouts");
+        fs::write(
+            root.join("config.lua"),
+            "settings = {}\nmodes = {}\nprofiles = { spatial = 'layouts/spatial.lua' }\n",
+        )
+        .expect("config");
+        let profile = root.join("layouts/spatial.lua");
+        fs::write(&profile, "function calculate() return {} end\n").expect("profile");
+        let loaded = ScriptLoader::new(&root, ScriptLimits::default())
+            .expect("loader")
+            .load()
+            .expect("load");
+        let profile = fs::canonicalize(profile).expect("canonical profile");
+        assert_eq!(loaded.profile_paths["spatial"], profile);
+        assert!(loaded.dependencies.contains(&profile));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn rejects_profile_path_outside_the_configuration_root() {
+        let root = root();
+        fs::create_dir_all(&root).expect("root");
+        let outside = root.with_extension("outside.lua");
+        fs::write(&outside, "function calculate() return {} end\n").expect("outside");
+        fs::write(
+            root.join("config.lua"),
+            format!(
+                "settings = {{}}\nmodes = {{}}\nprofiles = {{ spatial = '{}' }}\n",
+                outside.display()
+            ),
+        )
+        .expect("config");
+        assert!(
+            ScriptLoader::new(&root, ScriptLimits::default())
+                .expect("loader")
+                .load()
+                .is_err()
+        );
+        fs::remove_dir_all(root).expect("cleanup root");
+        fs::remove_file(outside).expect("cleanup outside");
     }
 }

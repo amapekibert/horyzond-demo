@@ -225,6 +225,17 @@ impl ConfigManager {
     pub const fn generation(&self) -> u64 {
         self.generation
     }
+
+    /// Returns the canonical Lua provider path selected for a profile by the
+    /// active configuration candidate.
+    #[must_use]
+    pub fn profile_path(&self, profile: &str) -> Option<&Path> {
+        self.active
+            .as_ref()?
+            .profile_paths
+            .get(profile)
+            .map(PathBuf::as_path)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -466,6 +477,7 @@ mod tests {
             manager.load_initial(),
             super::ReloadOutcome::Applied { generation: 1 }
         ));
+        assert!(manager.profile_path("spatial").is_some());
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

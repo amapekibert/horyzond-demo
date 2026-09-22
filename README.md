@@ -6,7 +6,7 @@ The project is licensed under [0BSD](LICENSE). The repositories in `examples/` a
 
 ## Current status
 
-P0 through P3 are implemented: the repository has a modular headless foundation, bounded Lua configuration reload, deterministic workspace lifecycle state, camera projection, scene snapshots, picking, and damage tracking. This is still not yet a usable compositor.
+P0 through P3 are implemented and P4 is in progress. The repository has a modular headless foundation, bounded Lua configuration reload, deterministic workspace lifecycle state, camera projection, scene snapshots, picking, damage tracking, and native recovery layouts with restricted Lua providers. This is still not yet a usable compositor.
 
 ## Development roadmap
 
@@ -16,7 +16,7 @@ P0 through P3 are implemented: the repository has a modular headless foundation,
 | P1 | First-run configuration bootstrap, session and crash diagnostics | Complete |
 | P2 | Lua configuration, `source()`, validation, live reload | Complete |
 | P3 | Headless core, workspaces, camera, scene | Complete |
-| P4 | SPATIAL, SCROLLING, TILING, STACKING layout providers | Next |
+| P4 | SPATIAL, SCROLLING, TILING, STACKING layout providers | In progress |
 | P5 | Modes, rules, hooks, IPC, `horyctl` | Planned |
 | P6 | Nested Wayland session and OpenGL renderer | Planned |
 | P7 | DRM/KMS, libinput, standalone Wayland | Planned |
@@ -50,7 +50,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo run
 ```
 
-The current `cargo run` command only demonstrates P0 composition with a virtual output. It does not create `~/.config/horyzond/`; that begins in P1.
+The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--config-dir` is supplied), starts session diagnostics, and demonstrates headless composition with a virtual output. It does not yet create a visible compositor session.
 
 ## Development TODO
 
@@ -62,7 +62,8 @@ The current `cargo run` command only demonstrates P0 composition with a virtual 
 - [x] Implement sandboxed Lua configuration with imports and transactional reload.
 - [x] Build the deterministic headless core, scene, camera, and damage foundations.
 - [x] Define all four native and Lua layout contracts.
-- [ ] Execute Lua layout providers and persist profile state across workspaces.
+- [x] Execute Lua layout providers, validate configured provider paths, and reload when a provider changes.
+- [ ] Select configured providers in the runtime and persist profile state across workspaces.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow
