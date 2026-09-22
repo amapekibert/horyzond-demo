@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use wm_types::{Rect, WindowId};
 
 /// The four canonical Horyzond workspace profiles.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum LayoutProfile {
     Spatial,
     Scrolling,

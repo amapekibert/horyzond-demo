@@ -10,6 +10,7 @@ description = "Deterministic workspace and window lifecycle coordinator for Hory
 
 [dependencies]
 wm-backend = { path = "../wm-backend" }
+wm-layout = { path = "../wm-layout" }
 wm-scene = { path = "../wm-scene" }
 wm-types = { path = "../wm-types" }
 

@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use wm_backend::BackendEvent;
+use wm_layout::{LayoutInput, LayoutProfile, builtin};
 use wm_scene::{Camera2D, Scene};
 use wm_types::{OutputId, OutputInfo, Rect, WindowId};
 
@@ -23,6 +24,8 @@ pub struct Workspace {
     pub camera: Camera2D,
     pub scene: Scene,
     focused: Option<WindowId>,
+    profile: LayoutProfile,
+    profile_geometry: BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>>,
 }
 impl Workspace {
     fn new(id: WorkspaceId) -> Self {
@@ -31,12 +34,19 @@ impl Workspace {
             camera: Camera2D::default(),
             scene: Scene::default(),
             focused: None,
+            profile: LayoutProfile::Spatial,
+            profile_geometry: BTreeMap::new(),
         }
     }
     /// Returns the focused mapped window, if any.
     #[must_use]
     pub const fn focused(&self) -> Option<WindowId> {
         self.focused
+    }
+    /// Returns the active layout profile.
+    #[must_use]
+    pub const fn profile(&self) -> LayoutProfile {
+        self.profile
     }
 }
 
@@ -104,9 +114,14 @@ impl CoreState {
         if !self.windows.contains(&window) {
             return Err(CoreError::NotMapped(window));
         }
-        self.active_workspace_mut()
-            .scene
-            .set_window(window, geometry);
+        let profile = self.active_workspace().profile;
+        let workspace = self.active_workspace_mut();
+        workspace.scene.set_window(window, geometry);
+        workspace
+            .profile_geometry
+            .entry(profile)
+            .or_default()
+            .insert(window, geometry);
         Ok(())
     }
     /// Changes focus to a mapped window in the active workspace.
@@ -120,6 +135,27 @@ impl CoreState {
         }
         self.active_workspace_mut().focused = Some(window);
         Ok(())
+    }
+    /// Switches profile and applies the corresponding layout to all mapped windows.
+    pub fn set_layout_profile(&mut self, profile: LayoutProfile, bounds: Rect) {
+        let windows = self.windows.iter().copied().collect::<Vec<_>>();
+        let workspace = self.active_workspace_mut();
+        workspace.profile = profile;
+        let existing = workspace
+            .profile_geometry
+            .entry(profile)
+            .or_default()
+            .clone();
+        let result = builtin(profile).calculate(&LayoutInput {
+            windows: &windows,
+            bounds,
+            existing: &existing,
+            focused: workspace.focused,
+        });
+        for (window, geometry) in &result {
+            workspace.scene.set_window(*window, *geometry);
+        }
+        workspace.profile_geometry.insert(profile, result);
     }
     /// Returns the active workspace.
     ///
@@ -177,6 +213,31 @@ mod tests {
                 .scene
                 .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
             None
+        );
+    }
+
+    #[test]
+    fn profile_switch_keeps_mapped_windows() {
+        let mut core = CoreState::default();
+        let first = WindowId::new(1);
+        let second = WindowId::new(2);
+        core.apply_event(BackendEvent::WindowMapped(first))
+            .expect("map first");
+        core.apply_event(BackendEvent::WindowMapped(second))
+            .expect("map second");
+        core.set_layout_profile(
+            wm_layout::LayoutProfile::Tiling,
+            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+        );
+        assert_eq!(
+            core.active_workspace().profile(),
+            wm_layout::LayoutProfile::Tiling
+        );
+        assert!(
+            core.active_workspace()
+                .scene
+                .pick(wm_types::Point::new(25.0, 25.0).expect("point"))
+                .is_some()
         );
     }
 }
