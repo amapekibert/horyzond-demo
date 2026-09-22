@@ -297,6 +297,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wm-core"
+version = "0.1.0"
+dependencies = [
+ "wm-backend",
+ "wm-scene",
+ "wm-types",
+]
+
+[[package]]
 name = "wm-diagnostics"
 version = "0.1.0"
 
@@ -304,6 +313,14 @@ version = "0.1.0"
 name = "wm-render"
 version = "0.1.0"
 dependencies = [
+ "wm-types",
+]
+
+[[package]]
+name = "wm-scene"
+version = "0.1.0"
+dependencies = [
+ "wm-render",
  "wm-types",
 ]
 
