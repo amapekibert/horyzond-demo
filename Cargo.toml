@@ -1,0 +1,46 @@
+[workspace]
+members = [
+    ".",
+    "crates/wm-types",
+    "crates/wm-backend",
+    "crates/wm-backend-headless",
+    "crates/wm-render",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "0BSD"
+authors = ["Horyzond contributors"]
+repository = "https://github.com/amapekibert/horyzond"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+
+[package]
+name = "horyzond"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "A modular window manager and compositor."
+default-run = "horyzond"
+
+[dependencies]
+wm-backend = { path = "crates/wm-backend" }
+wm-backend-headless = { path = "crates/wm-backend-headless" }
+wm-render = { path = "crates/wm-render" }
+wm-types = { path = "crates/wm-types" }
+
+[lints]
+workspace = true
