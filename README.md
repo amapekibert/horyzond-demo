@@ -62,7 +62,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Implement sandboxed Lua configuration with imports and transactional reload.
 - [x] Build the deterministic headless core, scene, camera, and damage foundations.
 - [x] Define all four native and Lua layout contracts.
-- [x] Execute Lua layout providers, validate configured provider paths, and reload when a provider changes.
+- [x] Execute bounded, versioned Lua layout providers, validate configured provider paths, and reload when a provider changes.
 - [x] Select configured providers through the neutral core with an independent native fallback for each profile.
 - [ ] Serialize profile state and migrate compatible state during a configuration reload.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.

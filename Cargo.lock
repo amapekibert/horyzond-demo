@@ -318,6 +318,7 @@ name = "wm-layout"
 version = "0.1.0"
 dependencies = [
  "mlua",
+ "wm-script",
  "wm-types",
 ]
 

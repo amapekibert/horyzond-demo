@@ -2,10 +2,13 @@
 
 #![allow(clippy::cast_precision_loss)]
 
-use mlua::{Lua, LuaOptions, StdLib, Table, Value};
+use mlua::{Error as LuaError, HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::rc::Rc;
+use wm_script::ScriptLimits;
 use wm_types::{Rect, WindowId};
 
 /// The four canonical Horyzond workspace profiles.
@@ -196,6 +199,7 @@ pub fn builtin(profile: LayoutProfile) -> Box<dyn LayoutEngine> {
 pub struct LuaLayout {
     profile: LayoutProfile,
     source: String,
+    limits: ScriptLimits,
 }
 
 /// Profile providers selected from a validated configuration candidate.
@@ -255,6 +259,23 @@ impl LuaLayout {
         Ok(Self {
             profile,
             source: fs::read_to_string(path)?,
+            limits: ScriptLimits::default(),
+        })
+    }
+    /// Loads a profile source file with explicit callback resource limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O failure when the profile file cannot be read.
+    pub fn from_file_with_limits(
+        profile: LayoutProfile,
+        path: impl AsRef<Path>,
+        limits: ScriptLimits,
+    ) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            profile,
+            source: fs::read_to_string(path)?,
+            limits,
         })
     }
     fn calculate_lua(&self, input: &LayoutInput<'_>) -> Result<BTreeMap<WindowId, Rect>, String> {
@@ -263,7 +284,25 @@ impl LuaLayout {
             LuaOptions::default(),
         )
         .map_err(|e| e.to_string())?;
+        lua.set_memory_limit(self.limits.memory_bytes)
+            .map_err(|e| e.to_string())?;
+        let remaining = Rc::new(RefCell::new(self.limits.instruction_limit));
+        lua.set_hook(
+            HookTriggers::new().every_nth_instruction(1_000),
+            move |_, _| {
+                let mut remaining = remaining.borrow_mut();
+                if *remaining < 1_000 {
+                    return Err(LuaError::RuntimeError(
+                        "Horyzond Lua instruction limit exceeded".to_owned(),
+                    ));
+                }
+                *remaining -= 1_000;
+                Ok(VmState::Continue)
+            },
+        )
+        .map_err(|e| e.to_string())?;
         lua.load(&self.source).exec().map_err(|e| e.to_string())?;
+        validate_layout_contract(&lua, self.profile)?;
         let calculate: mlua::Function =
             lua.globals().get("calculate").map_err(|e| e.to_string())?;
         let windows = lua.create_table().map_err(|e| e.to_string())?;
@@ -295,6 +334,22 @@ impl LuaLayout {
         }
         Ok(output)
     }
+}
+
+fn validate_layout_contract(lua: &Lua, profile: LayoutProfile) -> Result<(), String> {
+    let contract: Table = lua.globals().get("layout").map_err(|e| e.to_string())?;
+    let api_version: u64 = contract.get("api_version").map_err(|e| e.to_string())?;
+    if api_version != 1 {
+        return Err(format!("unsupported layout API version {api_version}"));
+    }
+    let declared_profile: String = contract.get("profile").map_err(|e| e.to_string())?;
+    if declared_profile != profile.config_name() {
+        return Err(format!(
+            "layout profile '{declared_profile}' does not match '{}'",
+            profile.config_name()
+        ));
+    }
+    Ok(())
 }
 impl LayoutEngine for LuaLayout {
     fn profile(&self) -> LayoutProfile {
@@ -361,7 +416,7 @@ mod tests {
     fn lua_provider_returns_validated_geometry() {
         let ids = [WindowId::new(1)];
         let existing = BTreeMap::new();
-        let layout = LuaLayout { profile: LayoutProfile::Spatial, source: "function calculate(windows, bounds, camera) return { [1] = { x = 7, y = 8, width = 9, height = 10 } } end".to_owned() };
+        let layout = LuaLayout { profile: LayoutProfile::Spatial, source: "layout = { api_version = 1, profile = 'spatial' } function calculate(windows, bounds, camera) return { [1] = { x = 7, y = 8, width = 9, height = 10 } } end".to_owned(), limits: ScriptLimits::default() };
         let result = layout.calculate(&input(&ids, &existing));
         assert!((result[&ids[0]].x - 7.0).abs() < f64::EPSILON);
     }
@@ -372,8 +427,9 @@ mod tests {
         let layout = LuaLayout {
             profile: LayoutProfile::Tiling,
             source:
-                "function calculate() return { [1] = { x = 0, y = 0, width = 0, height = 1 } } end"
+                "layout = { api_version = 1, profile = 'tiling' } function calculate() return { [1] = { x = 0, y = 0, width = 0, height = 1 } } end"
                     .to_owned(),
+            limits: ScriptLimits::default(),
         };
         let result = layout.calculate(&input(&ids, &existing));
         assert!((result[&ids[0]].width - 100.0).abs() < f64::EPSILON);
@@ -392,7 +448,7 @@ mod tests {
         let provider = root.join("spatial.lua");
         fs::write(
             &provider,
-            "function calculate() return { [1] = { x = 11, y = 12, width = 13, height = 14 } } end",
+            "layout = { api_version = 1, profile = 'spatial' } function calculate() return { [1] = { x = 11, y = 12, width = 13, height = 14 } } end",
         )
         .expect("provider");
         let providers = LayoutProviders::from_profile_paths(&BTreeMap::from([(
@@ -419,5 +475,24 @@ mod tests {
             Rect::new(0., 0., 100., 100.).expect("bounds")
         );
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn timed_out_provider_uses_native_fallback() {
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        let layout = LuaLayout {
+            profile: LayoutProfile::Tiling,
+            source: "layout = { api_version = 1, profile = 'tiling' } function calculate() while true do end end".to_owned(),
+            limits: ScriptLimits {
+                memory_bytes: 1024 * 1024,
+                instruction_limit: 1_000,
+            },
+        };
+        let result = layout.calculate(&input(&ids, &existing));
+        assert_eq!(
+            result[&ids[0]],
+            Rect::new(0., 0., 100., 100.).expect("bounds")
+        );
     }
 }

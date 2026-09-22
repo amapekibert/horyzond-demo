@@ -2,11 +2,11 @@
 
 Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**. P4 is actively in progress.
 
-Last local commit: `feat(p4): resolve configured layout providers`.
+Last completed step: `feat(p4): bound Lua layout callbacks`.
 
 ## Resume next
 
-Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has independent native recovery engines and `LuaLayout` can execute restricted profile files, validate their rectangles, and fall back safely; `wm-core` has multiple independent workspaces and applies the selected provider through `LayoutProviders`. The composition root loads the default profile from the active candidate and records whether it selected Lua or native recovery. Next, add bounded layout callbacks plus state serialization and migration during configuration reload.
+Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has independent native recovery engines and `LuaLayout` executes versioned profile contracts with memory and instruction limits, validates their rectangles, and falls back safely; `wm-core` has multiple independent workspaces and applies the selected provider through `LayoutProviders`. The composition root loads the default profile from the active candidate and records whether it selected Lua or native recovery. Next, add state serialization and compatible migration during configuration reload.
 
 ## Phase checklist
 
@@ -16,7 +16,7 @@ Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has indepe
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
-| P4 | In progress | Native fallback engines, versioned Lua contracts, and a restricted validated `LuaLayout` runtime cover SPATIAL, SCROLLING, TILING, and STACKING; active-profile application, per-profile geometry retention, and independent multi-workspace scenes are wired into core. Configuration resolves and watches canonical provider paths, and the composition root selects a configured provider or independent native fallback. Bounded layout callbacks, state serialization, and state migration remain. |
+| P4 | In progress | Native fallback engines, versioned Lua contracts, and a restricted validated `LuaLayout` runtime cover SPATIAL, SCROLLING, TILING, and STACKING; active-profile application, per-profile geometry retention, and independent multi-workspace scenes are wired into core. Configuration resolves and watches canonical provider paths, and the composition root selects a configured provider or independent native fallback. State serialization and migration remain. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
