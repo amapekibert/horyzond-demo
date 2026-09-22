@@ -59,8 +59,11 @@ dependencies = [
  "wm-backend",
  "wm-backend-headless",
  "wm-config",
+ "wm-core",
  "wm-diagnostics",
+ "wm-layout",
  "wm-render",
+ "wm-script",
  "wm-types",
 ]
 
