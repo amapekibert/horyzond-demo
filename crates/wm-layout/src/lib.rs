@@ -2,7 +2,10 @@
 
 #![allow(clippy::cast_precision_loss)]
 
+use mlua::{Lua, LuaOptions, StdLib, Table, Value};
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 use wm_types::{Rect, WindowId};
 
 /// The four canonical Horyzond workspace profiles.
@@ -165,6 +168,95 @@ pub fn builtin(profile: LayoutProfile) -> Box<dyn LayoutEngine> {
     }
 }
 
+/// A restricted external Lua layout provider with a native fallback.
+#[derive(Debug)]
+pub struct LuaLayout {
+    profile: LayoutProfile,
+    source: String,
+}
+impl LuaLayout {
+    /// Loads a profile source file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O failure when the profile file cannot be read.
+    pub fn from_file(
+        profile: LayoutProfile,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            profile,
+            source: fs::read_to_string(path)?,
+        })
+    }
+    fn calculate_lua(&self, input: &LayoutInput<'_>) -> Result<BTreeMap<WindowId, Rect>, String> {
+        let lua = Lua::new_with(
+            StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8,
+            LuaOptions::default(),
+        )
+        .map_err(|e| e.to_string())?;
+        lua.load(&self.source).exec().map_err(|e| e.to_string())?;
+        let calculate: mlua::Function =
+            lua.globals().get("calculate").map_err(|e| e.to_string())?;
+        let windows = lua.create_table().map_err(|e| e.to_string())?;
+        for (index, id) in input.windows.iter().enumerate() {
+            let window = lua.create_table().map_err(|e| e.to_string())?;
+            window.set("id", id.get()).map_err(|e| e.to_string())?;
+            if let Some(rect) = input.existing.get(id) {
+                window.set("x", rect.x).map_err(|e| e.to_string())?;
+                window.set("y", rect.y).map_err(|e| e.to_string())?;
+                window.set("width", rect.width).map_err(|e| e.to_string())?;
+                window
+                    .set("height", rect.height)
+                    .map_err(|e| e.to_string())?;
+            }
+            windows.set(index + 1, window).map_err(|e| e.to_string())?;
+        }
+        let bounds = rectangle_table(&lua, input.bounds)?;
+        let camera = lua.create_table().map_err(|e| e.to_string())?;
+        let result: Table = calculate
+            .call((windows, bounds, camera))
+            .map_err(|e| e.to_string())?;
+        let mut output = BTreeMap::new();
+        for id in input.windows {
+            let value: Value = result.get(id.get()).map_err(|e| e.to_string())?;
+            let Value::Table(table) = value else {
+                return Err(format!("missing rectangle for {id}"));
+            };
+            output.insert(*id, read_rect(&table)?);
+        }
+        Ok(output)
+    }
+}
+impl LayoutEngine for LuaLayout {
+    fn profile(&self) -> LayoutProfile {
+        self.profile
+    }
+    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
+        self.calculate_lua(input)
+            .unwrap_or_else(|_| builtin(self.profile).calculate(input))
+    }
+}
+fn rectangle_table(lua: &Lua, rect: Rect) -> Result<Table, String> {
+    let table = lua.create_table().map_err(|e| e.to_string())?;
+    table.set("x", rect.x).map_err(|e| e.to_string())?;
+    table.set("y", rect.y).map_err(|e| e.to_string())?;
+    table.set("width", rect.width).map_err(|e| e.to_string())?;
+    table
+        .set("height", rect.height)
+        .map_err(|e| e.to_string())?;
+    Ok(table)
+}
+fn read_rect(table: &Table) -> Result<Rect, String> {
+    Rect::new(
+        table.get("x").map_err(|e| e.to_string())?,
+        table.get("y").map_err(|e| e.to_string())?,
+        table.get("width").map_err(|e| e.to_string())?,
+        table.get("height").map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +288,13 @@ mod tests {
         let result = TilingLayout.calculate(&input(&ids, &existing));
         assert!((result[&ids[0]].width - 50.).abs() < f64::EPSILON);
         assert!((result[&ids[1]].height - 50.).abs() < f64::EPSILON);
+    }
+    #[test]
+    fn lua_provider_returns_validated_geometry() {
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        let layout = LuaLayout { profile: LayoutProfile::Spatial, source: "function calculate(windows, bounds, camera) return { [1] = { x = 7, y = 8, width = 9, height = 10 } } end".to_owned() };
+        let result = layout.calculate(&input(&ids, &existing));
+        assert!((result[&ids[0]].x - 7.0).abs() < f64::EPSILON);
     }
 }

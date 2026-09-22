@@ -6,7 +6,7 @@ Last local commit: `feat(p3): add deterministic core and scene`.
 
 ## Resume next
 
-Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has independent native recovery engines, `wm-core` can apply and retain per-profile geometry, and the shipped Lua files declare versioned world-space `calculate()` contracts. Next, execute and validate Lua provider output, add state serialization, multi-workspace switching, and profile-specific persistent state.
+Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has independent native recovery engines and `LuaLayout` can execute restricted profile files, validate their rectangles, and fall back safely; `wm-core` can retain per-profile geometry. Next, connect configured Lua files to profile selection, add state serialization, multi-workspace switching, and profile-specific persistent state.
 
 ## Phase checklist
 
@@ -16,7 +16,7 @@ Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has indepe
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete after the pending verification and commit | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Workspace switching, desired-versus-committed configure state, and real event-loop dispatch remain for later protocol work. |
-| P4 | In progress after the pending verification and commit | Native fallback engines and versioned Lua contracts cover SPATIAL, SCROLLING, TILING, and STACKING; active-profile application and per-profile geometry retention are wired into core. Lua provider execution, output validation, state serialization, state migration, and multi-workspace support remain. |
+| P4 | In progress after the pending verification and commit | Native fallback engines, versioned Lua contracts, and a restricted validated `LuaLayout` runtime cover SPATIAL, SCROLLING, TILING, and STACKING; active-profile application and per-profile geometry retention are wired into core. Configured provider selection, state serialization, state migration, and multi-workspace support remain. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |

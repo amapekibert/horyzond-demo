@@ -314,6 +314,7 @@ version = "0.1.0"
 name = "wm-layout"
 version = "0.1.0"
 dependencies = [
+ "mlua",
  "wm-types",
 ]
 

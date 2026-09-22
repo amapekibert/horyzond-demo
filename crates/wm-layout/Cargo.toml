@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Independent canonical layout profiles for Horyzond."
 
 [dependencies]
+mlua = { version = "0.12.1", features = ["lua54", "vendored"] }
 wm-types = { path = "../wm-types" }
 
 [lints]
