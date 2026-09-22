@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use wm_backend::BackendEvent;
-use wm_layout::{LayoutEngine, LayoutInput, LayoutProfile, LayoutProviders, builtin};
+use wm_layout::{LayoutEngine, LayoutInput, LayoutProfile, LayoutProviders, LayoutState, builtin};
 use wm_scene::{Camera2D, Scene};
 use wm_types::{OutputId, OutputInfo, Rect, WindowId};
 
@@ -47,6 +47,24 @@ impl Workspace {
     #[must_use]
     pub const fn profile(&self) -> LayoutProfile {
         self.profile
+    }
+
+    fn layout_state(&self) -> LayoutState {
+        LayoutState::new(self.profile, self.profile_geometry.clone())
+    }
+
+    fn restore_layout_state(&mut self, state: LayoutState, windows: &BTreeSet<WindowId>) {
+        self.profile = state.active_profile();
+        self.profile_geometry = state.into_geometry();
+        for geometry in self.profile_geometry.values_mut() {
+            geometry.retain(|window, _| windows.contains(window));
+        }
+        self.scene.clear();
+        if let Some(geometry) = self.profile_geometry.get(&self.profile) {
+            for (window, bounds) in geometry {
+                self.scene.set_window(*window, *bounds);
+            }
+        }
     }
 }
 
@@ -121,6 +139,9 @@ impl CoreState {
                     if workspace.focused == Some(window) {
                         workspace.focused = None;
                     }
+                    for geometry in workspace.profile_geometry.values_mut() {
+                        geometry.remove(&window);
+                    }
                 }
             }
         }
@@ -173,6 +194,12 @@ impl CoreState {
         let engine = providers.provider(profile);
         self.apply_layout(engine.as_ref(), bounds);
     }
+    /// Reapplies the active profile through providers from a new configuration
+    /// generation while retaining data-only compatible profile state.
+    pub fn migrate_active_layout(&mut self, providers: &LayoutProviders, bounds: Rect) {
+        let profile = self.active_workspace().profile;
+        self.set_configured_layout_profile(profile, providers, bounds);
+    }
     /// Applies any configured or built-in profile provider to the active workspace.
     pub fn apply_layout(&mut self, engine: &dyn LayoutEngine, bounds: Rect) {
         let windows = self.windows.iter().copied().collect::<Vec<_>>();
@@ -194,6 +221,20 @@ impl CoreState {
             workspace.scene.set_window(*window, *geometry);
         }
         workspace.profile_geometry.insert(profile, result);
+    }
+    /// Returns a versioned, data-only snapshot of the active workspace layout.
+    #[must_use]
+    pub fn active_layout_state(&self) -> LayoutState {
+        self.active_workspace().layout_state()
+    }
+    /// Restores active-workspace layout state after validating its format.
+    ///
+    /// Closed or unknown window IDs are discarded; only currently mapped
+    /// windows can re-enter the scene.
+    pub fn restore_active_layout_state(&mut self, state: LayoutState) {
+        let windows = self.windows.clone();
+        self.active_workspace_mut()
+            .restore_layout_state(state, &windows);
     }
     /// Returns the active workspace.
     ///
@@ -341,5 +382,64 @@ mod tests {
             Some(window)
         );
         std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn layout_state_restores_only_currently_mapped_windows() {
+        let mut original = CoreState::default();
+        let window = WindowId::new(1);
+        original
+            .apply_event(BackendEvent::WindowMapped(window))
+            .expect("map");
+        original
+            .set_geometry(window, Rect::new(10.0, 20.0, 30.0, 40.0).expect("rect"))
+            .expect("geometry");
+        let state = original.active_layout_state();
+        let encoded = state.to_json().expect("encode");
+
+        let mut restored = CoreState::default();
+        restored
+            .apply_event(BackendEvent::WindowMapped(window))
+            .expect("map");
+        restored.restore_active_layout_state(
+            wm_layout::LayoutState::from_json(&encoded).expect("decode"),
+        );
+        assert_eq!(
+            restored
+                .active_workspace()
+                .scene
+                .pick(wm_types::Point::new(11.0, 21.0).expect("point")),
+            Some(window)
+        );
+
+        restored
+            .apply_event(BackendEvent::WindowUnmapped(window))
+            .expect("unmap");
+        assert!(
+            restored
+                .active_layout_state()
+                .geometry(wm_layout::LayoutProfile::Spatial)
+                .is_none_or(std::collections::BTreeMap::is_empty)
+        );
+    }
+
+    #[test]
+    fn configuration_migration_reuses_data_only_profile_geometry() {
+        let mut core = CoreState::default();
+        let window = WindowId::new(1);
+        core.apply_event(BackendEvent::WindowMapped(window))
+            .expect("map");
+        core.set_geometry(window, Rect::new(10.0, 20.0, 30.0, 40.0).expect("rect"))
+            .expect("geometry");
+        core.migrate_active_layout(
+            &wm_layout::LayoutProviders::default(),
+            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+        );
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(wm_types::Point::new(11.0, 21.0).expect("point")),
+            Some(window)
+        );
     }
 }

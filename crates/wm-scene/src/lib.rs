@@ -91,6 +91,15 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// Removes every window while retaining the damage required to repaint them.
+    pub fn clear(&mut self) {
+        for bounds in self.windows.values().copied() {
+            self.damage.add(bounds);
+        }
+        self.windows.clear();
+        self.order.clear();
+        self.generation += 1;
+    }
     /// Inserts or updates a world rectangle and marks both old and new bounds damaged.
     pub fn set_window(&mut self, window: WindowId, bounds: Rect) {
         if let Some(old) = self.windows.insert(window, bounds) {

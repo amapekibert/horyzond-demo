@@ -64,7 +64,8 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Define all four native and Lua layout contracts.
 - [x] Execute bounded, versioned Lua layout providers, validate configured provider paths, and reload when a provider changes.
 - [x] Select configured providers through the neutral core with an independent native fallback for each profile.
-- [ ] Serialize profile state and migrate compatible state during a configuration reload.
+- [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
+- [ ] Add profile-specific navigation, placement, and resize state beyond the shared geometry baseline.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow

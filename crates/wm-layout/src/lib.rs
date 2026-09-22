@@ -3,6 +3,7 @@
 #![allow(clippy::cast_precision_loss)]
 
 use mlua::{Error as LuaError, HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
@@ -12,13 +13,99 @@ use wm_script::ScriptLimits;
 use wm_types::{Rect, WindowId};
 
 /// The four canonical Horyzond workspace profiles.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum LayoutProfile {
     Spatial,
     Scrolling,
     Tiling,
     Stacking,
 }
+
+/// Versioned, data-only state for one workspace's layout profiles.
+///
+/// Lua closures and provider source are intentionally excluded. The state can
+/// therefore survive provider replacement and be validated before use.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LayoutState {
+    version: u32,
+    active_profile: LayoutProfile,
+    profile_geometry: BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>>,
+}
+impl LayoutState {
+    /// Current format revision for serialized layout state.
+    pub const VERSION: u32 = 1;
+
+    /// Creates state from a workspace's active profile and saved geometry.
+    #[must_use]
+    pub fn new(
+        active_profile: LayoutProfile,
+        profile_geometry: BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>>,
+    ) -> Self {
+        Self {
+            version: Self::VERSION,
+            active_profile,
+            profile_geometry,
+        }
+    }
+
+    /// Returns the active profile recorded in this state.
+    #[must_use]
+    pub const fn active_profile(&self) -> LayoutProfile {
+        self.active_profile
+    }
+
+    /// Returns saved geometry for one profile.
+    #[must_use]
+    pub fn geometry(&self, profile: LayoutProfile) -> Option<&BTreeMap<WindowId, Rect>> {
+        self.profile_geometry.get(&profile)
+    }
+
+    /// Consumes this state into its data-only profile geometry.
+    #[must_use]
+    pub fn into_geometry(self) -> BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>> {
+        self.profile_geometry
+    }
+
+    /// Encodes a deterministic JSON document for persistence or diagnosis.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error only when the in-memory data cannot be represented as JSON.
+    pub fn to_json(&self) -> Result<String, LayoutStateError> {
+        serde_json::to_string(self).map_err(LayoutStateError::Json)
+    }
+
+    /// Decodes and validates a persisted JSON document.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when JSON is malformed or has an unsupported format version.
+    pub fn from_json(json: &str) -> Result<Self, LayoutStateError> {
+        let state: Self = serde_json::from_str(json).map_err(LayoutStateError::Json)?;
+        if state.version != Self::VERSION {
+            return Err(LayoutStateError::UnsupportedVersion(state.version));
+        }
+        Ok(state)
+    }
+}
+
+/// A failure while encoding or decoding data-only profile state.
+#[derive(Debug)]
+pub enum LayoutStateError {
+    Json(serde_json::Error),
+    UnsupportedVersion(u32),
+}
+impl std::fmt::Display for LayoutStateError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(error) => error.fmt(formatter),
+            Self::UnsupportedVersion(version) => {
+                write!(formatter, "unsupported layout state version {version}")
+            }
+        }
+    }
+}
+impl std::error::Error for LayoutStateError {}
 impl LayoutProfile {
     /// Resolves one stable configuration-table name.
     #[must_use]
@@ -494,5 +581,31 @@ mod tests {
             result[&ids[0]],
             Rect::new(0., 0., 100., 100.).expect("bounds")
         );
+    }
+
+    #[test]
+    fn layout_state_round_trips_without_provider_code() {
+        let state = LayoutState::new(
+            LayoutProfile::Spatial,
+            BTreeMap::from([(
+                LayoutProfile::Spatial,
+                BTreeMap::from([(
+                    WindowId::new(7),
+                    Rect::new(1.0, 2.0, 3.0, 4.0).expect("rect"),
+                )]),
+            )]),
+        );
+        let json = state.to_json().expect("encode");
+        assert!(!json.contains("function"));
+        assert_eq!(LayoutState::from_json(&json).expect("decode"), state);
+    }
+
+    #[test]
+    fn layout_state_rejects_unknown_format_versions() {
+        let error = LayoutState::from_json(
+            r#"{"version":99,"active_profile":"Spatial","profile_geometry":{}}"#,
+        )
+        .expect_err("unsupported version");
+        assert!(matches!(error, LayoutStateError::UnsupportedVersion(99)));
     }
 }

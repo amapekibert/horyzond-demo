@@ -3,10 +3,13 @@
 //! This crate deliberately has no dependency on Lua, Wayland, X11, OpenGL, or
 //! Vulkan. Native resources remain inside the adapters that own them.
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A stable identifier for a managed window during one compositor session.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
 pub struct WindowId(u64);
 
 impl WindowId {
@@ -61,7 +64,7 @@ impl fmt::Display for OutputId {
 }
 
 /// A point in a named two-dimensional coordinate space.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -83,7 +86,7 @@ impl Point {
 
 /// A finite, positive rectangle. Layouts return world-space rectangles; the
 /// scene module is solely responsible for projection to output-local space.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Rect {
     pub x: f64,
     pub y: f64,

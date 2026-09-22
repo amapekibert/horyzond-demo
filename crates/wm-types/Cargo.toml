@@ -8,5 +8,8 @@ authors.workspace = true
 repository.workspace = true
 description = "Platform-neutral Horyzond identifiers, geometry, and capabilities."
 
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
 [lints]
 workspace = true
