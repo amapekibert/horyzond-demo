@@ -6,10 +6,13 @@
 
 use wm_backend::WindowSystem;
 use wm_backend_headless::HeadlessBackend;
-use wm_config::{ConfigPath, install_defaults};
+use wm_config::{ConfigManager, ConfigPath, ReloadOutcome, install_defaults};
+use wm_core::CoreState;
 use wm_diagnostics::{LogLevel, SessionId, SessionLogger, install_panic_hook};
+use wm_layout::{LayoutProfile, LayoutProviders};
 use wm_render::{RecordingRenderer, Renderer};
-use wm_types::OutputInfo;
+use wm_script::ScriptLimits;
+use wm_types::{OutputInfo, Rect};
 
 fn main() {
     let config = match parse_config_path() {
@@ -44,14 +47,54 @@ fn main() {
     let mut backend = HeadlessBackend::new([OutputInfo::new("headless-0", 1280, 720, 1.0)]);
     let renderer = RecordingRenderer::default();
 
+    let mut configuration = match ConfigManager::new(&config, ScriptLimits::default()) {
+        Ok(manager) => manager,
+        Err(error) => exit_with_error(&error.to_string()),
+    };
+    if let ReloadOutcome::Rejected { diagnostic } = configuration.load_initial() {
+        exit_with_error(&format!("initial configuration rejected: {diagnostic}"));
+    }
+    let profile = configuration
+        .default_profile()
+        .and_then(LayoutProfile::from_config_name)
+        .unwrap_or(LayoutProfile::Spatial);
+    let providers = LayoutProviders::from_profile_paths(
+        configuration
+            .profile_paths()
+            .expect("successful configuration load has an active candidate"),
+    );
+    let configured_provider = providers.is_configured(profile);
+    let mut core = CoreState::default();
+    core.set_configured_layout_profile(
+        profile,
+        &providers,
+        Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds"),
+    );
+    if let Err(error) = logger.record(
+        LogLevel::Info,
+        "layout",
+        &format!(
+            "selected {} profile with {} provider",
+            profile.config_name(),
+            if configured_provider {
+                "configured Lua"
+            } else {
+                "native recovery"
+            }
+        ),
+    ) {
+        exit_with_error(&error.to_string());
+    }
+
     if let Err(error) = backend.initialize() {
         eprintln!("failed to initialize the headless backend: {error}");
         std::process::exit(1);
     }
 
     println!(
-        "Horyzond P1 foundation is ready: {} output(s), renderer capabilities: {:?}",
+        "Horyzond headless runtime is ready: {} output(s), {} profile, renderer capabilities: {:?}",
         backend.outputs().len(),
+        profile.config_name(),
         renderer.capabilities()
     );
     if let Err(error) = logger.close() {

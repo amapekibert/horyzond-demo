@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use wm_backend::BackendEvent;
-use wm_layout::{LayoutEngine, LayoutInput, LayoutProfile, builtin};
+use wm_layout::{LayoutEngine, LayoutInput, LayoutProfile, LayoutProviders, builtin};
 use wm_scene::{Camera2D, Scene};
 use wm_types::{OutputId, OutputInfo, Rect, WindowId};
 
@@ -162,6 +162,17 @@ impl CoreState {
         let engine = builtin(profile);
         self.apply_layout(engine.as_ref(), bounds);
     }
+    /// Switches profile using the active configuration candidate when it has a
+    /// readable provider, otherwise using that profile's native recovery engine.
+    pub fn set_configured_layout_profile(
+        &mut self,
+        profile: LayoutProfile,
+        providers: &LayoutProviders,
+        bounds: Rect,
+    ) {
+        let engine = providers.provider(profile);
+        self.apply_layout(engine.as_ref(), bounds);
+    }
     /// Applies any configured or built-in profile provider to the active workspace.
     pub fn apply_layout(&mut self, engine: &dyn LayoutEngine, bounds: Rect) {
         let windows = self.windows.iter().copied().collect::<Vec<_>>();
@@ -293,5 +304,42 @@ mod tests {
                 .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
             Some(first)
         );
+    }
+
+    #[test]
+    fn configured_provider_drives_profile_geometry() {
+        let root = std::env::temp_dir().join(format!(
+            "horyzond-core-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("root");
+        let path = root.join("spatial.lua");
+        std::fs::write(
+            &path,
+            "function calculate() return { [1] = { x = 20, y = 30, width = 40, height = 50 } } end",
+        )
+        .expect("provider");
+        let providers = wm_layout::LayoutProviders::from_profile_paths(
+            &std::collections::BTreeMap::from([("spatial".to_owned(), path)]),
+        );
+        let mut core = CoreState::default();
+        let window = WindowId::new(1);
+        core.apply_event(BackendEvent::WindowMapped(window))
+            .expect("map");
+        core.set_configured_layout_profile(
+            wm_layout::LayoutProfile::Spatial,
+            &providers,
+            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+        );
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(wm_types::Point::new(21.0, 31.0).expect("point")),
+            Some(window)
+        );
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 }

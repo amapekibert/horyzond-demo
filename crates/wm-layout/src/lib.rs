@@ -16,6 +16,29 @@ pub enum LayoutProfile {
     Tiling,
     Stacking,
 }
+impl LayoutProfile {
+    /// Resolves one stable configuration-table name.
+    #[must_use]
+    pub fn from_config_name(name: &str) -> Option<Self> {
+        match name {
+            "spatial" => Some(Self::Spatial),
+            "scrolling" => Some(Self::Scrolling),
+            "tiling" => Some(Self::Tiling),
+            "stacking" => Some(Self::Stacking),
+            _ => None,
+        }
+    }
+    /// Returns the stable configuration-table name for this profile.
+    #[must_use]
+    pub const fn config_name(self) -> &'static str {
+        match self {
+            Self::Spatial => "spatial",
+            Self::Scrolling => "scrolling",
+            Self::Tiling => "tiling",
+            Self::Stacking => "stacking",
+        }
+    }
+}
 
 /// Immutable data passed into a profile calculation.
 #[derive(Clone, Debug)]
@@ -169,10 +192,55 @@ pub fn builtin(profile: LayoutProfile) -> Box<dyn LayoutEngine> {
 }
 
 /// A restricted external Lua layout provider with a native fallback.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LuaLayout {
     profile: LayoutProfile,
     source: String,
+}
+
+/// Profile providers selected from a validated configuration candidate.
+///
+/// Files that cannot be read are omitted. Callers receive the independent
+/// native provider for an omitted profile, so a broken provider never blocks
+/// the other profiles.
+#[derive(Clone, Debug, Default)]
+pub struct LayoutProviders {
+    providers: BTreeMap<LayoutProfile, LuaLayout>,
+}
+impl LayoutProviders {
+    /// Loads recognized profile files from canonical configuration paths.
+    #[must_use]
+    pub fn from_profile_paths(profile_paths: &BTreeMap<String, std::path::PathBuf>) -> Self {
+        let mut providers = BTreeMap::new();
+        for profile in [
+            LayoutProfile::Spatial,
+            LayoutProfile::Scrolling,
+            LayoutProfile::Tiling,
+            LayoutProfile::Stacking,
+        ] {
+            if let Some(path) = profile_paths.get(profile.config_name())
+                && let Ok(provider) = LuaLayout::from_file(profile, path)
+            {
+                providers.insert(profile, provider);
+            }
+        }
+        Self { providers }
+    }
+
+    /// Returns the configured provider or the safe native provider for one profile.
+    #[must_use]
+    pub fn provider(&self, profile: LayoutProfile) -> Box<dyn LayoutEngine> {
+        self.providers
+            .get(&profile)
+            .cloned()
+            .map_or_else(|| builtin(profile), |provider| Box::new(provider))
+    }
+
+    /// Reports whether a profile has a readable configured provider.
+    #[must_use]
+    pub fn is_configured(&self, profile: LayoutProfile) -> bool {
+        self.providers.contains_key(&profile)
+    }
 }
 impl LuaLayout {
     /// Loads a profile source file.
@@ -309,5 +377,47 @@ mod tests {
         };
         let result = layout.calculate(&input(&ids, &existing));
         assert!((result[&ids[0]].width - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn configured_provider_is_selected_by_profile_name() {
+        let root = std::env::temp_dir().join(format!(
+            "horyzond-layout-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("root");
+        let provider = root.join("spatial.lua");
+        fs::write(
+            &provider,
+            "function calculate() return { [1] = { x = 11, y = 12, width = 13, height = 14 } } end",
+        )
+        .expect("provider");
+        let providers = LayoutProviders::from_profile_paths(&BTreeMap::from([(
+            "spatial".to_owned(),
+            provider,
+        )]));
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        assert!(providers.is_configured(LayoutProfile::Spatial));
+        assert!(!providers.is_configured(LayoutProfile::Tiling));
+        assert!(
+            (providers
+                .provider(LayoutProfile::Spatial)
+                .calculate(&input(&ids, &existing))[&ids[0]]
+                .x
+                - 11.0)
+                .abs()
+                < f64::EPSILON
+        );
+        assert_eq!(
+            providers
+                .provider(LayoutProfile::Tiling)
+                .calculate(&input(&ids, &existing))[&ids[0]],
+            Rect::new(0., 0., 100., 100.).expect("bounds")
+        );
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

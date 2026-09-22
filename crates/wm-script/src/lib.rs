@@ -34,6 +34,8 @@ pub struct LoadedScript {
     /// The paths are confined to the configuration root and are also included
     /// in `dependencies`, so editing a provider triggers a configuration reload.
     pub profile_paths: BTreeMap<String, PathBuf>,
+    /// The requested initial profile, defaulting to the canonical SPATIAL name.
+    pub default_profile: String,
 }
 
 /// Loads one configuration root and all files imported with `source()`.
@@ -99,6 +101,7 @@ impl ScriptLoader {
         execute_file(&lua, &self.root, &state, "config.lua")?;
         validate_configuration(&lua)?;
         let profile_paths = extract_profile_paths(&lua, &self.root)?;
+        let default_profile = extract_default_profile(&lua)?;
         state
             .borrow_mut()
             .dependencies
@@ -106,6 +109,7 @@ impl ScriptLoader {
         Ok(LoadedScript {
             dependencies: state.borrow().dependencies.clone(),
             profile_paths,
+            default_profile,
         })
     }
 }
@@ -145,6 +149,17 @@ fn extract_profile_paths(lua: &Lua, root: &Path) -> Result<BTreeMap<String, Path
         paths.insert(name, path);
     }
     Ok(paths)
+}
+
+fn extract_default_profile(lua: &Lua) -> Result<String, ScriptError> {
+    let settings = lua
+        .globals()
+        .get::<mlua::Table>("settings")
+        .map_err(ScriptError::Lua)?;
+    settings
+        .get::<Option<String>>("default_profile")
+        .map_err(ScriptError::Lua)
+        .map(|profile| profile.unwrap_or_else(|| "spatial".to_owned()))
 }
 
 #[derive(Default)]
@@ -288,6 +303,7 @@ mod tests {
             .expect("load");
         let profile = fs::canonicalize(profile).expect("canonical profile");
         assert_eq!(loaded.profile_paths["spatial"], profile);
+        assert_eq!(loaded.default_profile, "spatial");
         assert!(loaded.dependencies.contains(&profile));
         fs::remove_dir_all(root).expect("cleanup");
     }

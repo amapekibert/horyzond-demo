@@ -46,8 +46,11 @@ default-run = "horyzond"
 wm-backend = { path = "crates/wm-backend" }
 wm-backend-headless = { path = "crates/wm-backend-headless" }
 wm-config = { path = "crates/wm-config" }
+wm-core = { path = "crates/wm-core" }
 wm-diagnostics = { path = "crates/wm-diagnostics" }
+wm-layout = { path = "crates/wm-layout" }
 wm-render = { path = "crates/wm-render" }
+wm-script = { path = "crates/wm-script" }
 wm-types = { path = "crates/wm-types" }
 
 [lints]

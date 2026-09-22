@@ -236,6 +236,22 @@ impl ConfigManager {
             .get(profile)
             .map(PathBuf::as_path)
     }
+
+    /// Returns every canonical provider path from the active configuration candidate.
+    #[must_use]
+    pub fn profile_paths(&self) -> Option<&std::collections::BTreeMap<String, PathBuf>> {
+        self.active
+            .as_ref()
+            .map(|candidate| &candidate.profile_paths)
+    }
+
+    /// Returns the default profile selected by the active configuration candidate.
+    #[must_use]
+    pub fn default_profile(&self) -> Option<&str> {
+        self.active
+            .as_ref()
+            .map(|candidate| candidate.default_profile.as_str())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -478,6 +494,7 @@ mod tests {
             super::ReloadOutcome::Applied { generation: 1 }
         ));
         assert!(manager.profile_path("spatial").is_some());
+        assert_eq!(manager.default_profile(), Some("spatial"));
         fs::remove_dir_all(root).expect("cleanup");
     }
 }
