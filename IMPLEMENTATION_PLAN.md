@@ -14,7 +14,7 @@ This plan develops [horyzondRust-architecture.md](horyzondRust-architecture.md) 
 - Create the directory and all shipped default configuration files automatically when absent. Never overwrite user edits during normal startup or reload.
 - Support relative `source("file.lua")` imports, nested imports, automatic reload, explicit reload, validation, and rollback without terminating clients.
 - Write a detailed log of each active session to `~/.config/horyzond/latest.log`, preserve earlier sessions, and create crash reports.
-- License original project work under BSD Zero Clause (`0BSD`, the SPDX identifier). Keep all code, configuration comments, documentation, diagnostic messages, and CLI output in English.
+- Do What The Fuck You Want To Public License (`WTFPL`). Keep all code, configuration comments, documentation, diagnostic messages, and CLI output in English.
 
 ## 2. Architecture decisions to settle in P0
 
