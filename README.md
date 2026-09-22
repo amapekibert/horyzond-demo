@@ -61,7 +61,8 @@ The current `cargo run` command only demonstrates P0 composition with a virtual 
 - [x] Create `latest.log`, archived session logs, and crash reports.
 - [x] Implement sandboxed Lua configuration with imports and transactional reload.
 - [x] Build the deterministic headless core, scene, camera, and damage foundations.
-- [ ] Build all four layout providers.
+- [x] Define all four native and Lua layout contracts.
+- [ ] Execute Lua layout providers and persist profile state across workspaces.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow
