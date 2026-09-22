@@ -1,4 +1,4 @@
-layout = { name = "tiling", profile = "TILING", api_version = 1 }
+layout = { name = "tiling", profile = "tiling", api_version = 1 }
 
 -- Master-stack tiling in canonical world coordinates.
 function calculate(windows, bounds, _camera)

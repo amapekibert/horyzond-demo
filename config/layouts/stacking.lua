@@ -1,4 +1,4 @@
-layout = { name = "stacking", profile = "STACKING", api_version = 1 }
+layout = { name = "stacking", profile = "stacking", api_version = 1 }
 
 -- Preserve user geometry; cascade only windows that have no previous rectangle.
 function calculate(windows, bounds, _camera)

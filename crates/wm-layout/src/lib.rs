@@ -608,4 +608,35 @@ mod tests {
         .expect_err("unsupported version");
         assert!(matches!(error, LayoutStateError::UnsupportedVersion(99)));
     }
+
+    #[test]
+    fn shipped_lua_contracts_match_canonical_profile_names() {
+        let empty = [];
+        let existing = BTreeMap::new();
+        for (profile, source) in [
+            (
+                LayoutProfile::Spatial,
+                include_str!("../../../config/layouts/spatial.lua"),
+            ),
+            (
+                LayoutProfile::Scrolling,
+                include_str!("../../../config/layouts/scrolling.lua"),
+            ),
+            (
+                LayoutProfile::Tiling,
+                include_str!("../../../config/layouts/tiling.lua"),
+            ),
+            (
+                LayoutProfile::Stacking,
+                include_str!("../../../config/layouts/stacking.lua"),
+            ),
+        ] {
+            let layout = LuaLayout {
+                profile,
+                source: source.to_owned(),
+                limits: ScriptLimits::default(),
+            };
+            assert!(layout.calculate_lua(&input(&empty, &existing)).is_ok());
+        }
+    }
 }
