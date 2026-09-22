@@ -118,6 +118,25 @@ impl Scene {
         self.generation += 1;
         Some(old)
     }
+    /// Moves a mapped window to the front of paint order.
+    ///
+    /// Returns `false` when the window is absent from this scene.
+    pub fn raise_window(&mut self, window: WindowId) -> bool {
+        let Some(bounds) = self.windows.get(&window).copied() else {
+            return false;
+        };
+        let Some(position) = self.order.iter().position(|id| *id == window) else {
+            return false;
+        };
+        if position + 1 == self.order.len() {
+            return true;
+        }
+        self.order.remove(position);
+        self.order.push(window);
+        self.damage.add(bounds);
+        self.generation += 1;
+        true
+    }
     /// Returns the topmost world-space window containing a point.
     #[must_use]
     pub fn pick(&self, world: Point) -> Option<WindowId> {
@@ -229,5 +248,27 @@ mod tests {
             2
         );
         assert_eq!(scene.take_damage().len(), 1);
+    }
+
+    #[test]
+    fn raise_changes_paint_order_without_changing_geometry() {
+        let mut scene = Scene::default();
+        scene.set_window(
+            WindowId::new(1),
+            Rect::new(0.0, 0.0, 20.0, 20.0).expect("rect"),
+        );
+        scene.set_window(
+            WindowId::new(2),
+            Rect::new(5.0, 5.0, 10.0, 10.0).expect("rect"),
+        );
+        assert_eq!(
+            scene.pick(Point::new(6.0, 6.0).expect("point")),
+            Some(WindowId::new(2))
+        );
+        assert!(scene.raise_window(WindowId::new(1)));
+        assert_eq!(
+            scene.pick(Point::new(6.0, 6.0).expect("point")),
+            Some(WindowId::new(1))
+        );
     }
 }

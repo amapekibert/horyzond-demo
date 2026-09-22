@@ -178,6 +178,23 @@ impl CoreState {
         self.active_workspace_mut().focused = Some(window);
         Ok(())
     }
+    /// Raises a mapped window above its siblings in the active workspace.
+    ///
+    /// Focus and paint order remain independent: callers must explicitly
+    /// request a raise when a profile policy permits it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the window is not mapped or absent from the active scene.
+    pub fn raise(&mut self, window: WindowId) -> Result<(), CoreError> {
+        if !self.windows.contains(&window) {
+            return Err(CoreError::NotMapped(window));
+        }
+        if !self.active_workspace_mut().scene.raise_window(window) {
+            return Err(CoreError::NotInActiveWorkspace(window));
+        }
+        Ok(())
+    }
     /// Switches profile and applies the corresponding layout to all mapped windows.
     pub fn set_layout_profile(&mut self, profile: LayoutProfile, bounds: Rect) {
         let engine = builtin(profile);
@@ -259,6 +276,7 @@ impl CoreState {
 pub enum CoreError {
     AlreadyMapped(WindowId),
     NotMapped(WindowId),
+    NotInActiveWorkspace(WindowId),
     UnknownWorkspace(WorkspaceId),
 }
 impl fmt::Display for CoreError {
@@ -266,6 +284,9 @@ impl fmt::Display for CoreError {
         match self {
             Self::AlreadyMapped(id) => write!(f, "{id} is already mapped"),
             Self::NotMapped(id) => write!(f, "{id} is not mapped"),
+            Self::NotInActiveWorkspace(id) => {
+                write!(f, "{id} is not present in the active workspace")
+            }
             Self::UnknownWorkspace(id) => write!(f, "workspace {} does not exist", id.0),
         }
     }
@@ -440,6 +461,33 @@ mod tests {
                 .scene
                 .pick(wm_types::Point::new(11.0, 21.0).expect("point")),
             Some(window)
+        );
+    }
+
+    #[test]
+    fn focus_does_not_raise_but_explicit_raise_does() {
+        let mut core = CoreState::default();
+        let first = WindowId::new(1);
+        let second = WindowId::new(2);
+        for window in [first, second] {
+            core.apply_event(BackendEvent::WindowMapped(window))
+                .expect("map");
+            core.set_geometry(window, Rect::new(0.0, 0.0, 20.0, 20.0).expect("rect"))
+                .expect("geometry");
+        }
+        core.focus(first).expect("focus");
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
+            Some(second)
+        );
+        core.raise(first).expect("raise");
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
+            Some(first)
         );
     }
 }
