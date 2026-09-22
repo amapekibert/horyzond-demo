@@ -301,6 +301,7 @@ name = "wm-core"
 version = "0.1.0"
 dependencies = [
  "wm-backend",
+ "wm-layout",
  "wm-scene",
  "wm-types",
 ]
