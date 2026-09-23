@@ -22,7 +22,7 @@ layout = {
   api_version = 1,
 }
 
-function calculate(windows, bounds, camera)
+function calculate(windows, bounds, camera, state)
   local result = {}
   for index, window in ipairs(windows) do
     result[window.id] = {
@@ -32,19 +32,23 @@ function calculate(windows, bounds, camera)
       height = bounds.height * 0.7,
     }
   end
+  result.state = state
   return result
 end
 ```
 
-`calculate` receives three tables:
+`calculate` receives four values:
 
 - `windows` is an array in stable coordinator order. Every item has `id`. If a rectangle was previously saved for that layout and window, it also has `x`, `y`, `width`, and `height`.
 - `bounds` has finite `x`, `y`, `width`, and `height` values for the current work area.
 - `camera` is reserved for future provider camera intent. API version 1 supplies an empty table.
+- `state` is the provider's prior JSON-compatible data. It is `null` when the provider has not returned state before.
 
 The return value must contain one rectangle for every supplied window, keyed by its numeric `window.id`. A rectangle requires finite `x`, `y`, `width`, and `height`; widths and heights must be positive. Extra entries are ignored. Missing or invalid entries reject that calculation and use generic recovery placement for that request.
 
 The result can also set `order` to an array containing every supplied window ID exactly once, from back to front. When `order` is absent, the stable `windows` input order is retained. An invalid order rejects the whole calculation and uses generic recovery placement.
+
+The result can set `state` to any JSON-compatible value. It is stored under the provider's opaque ID in workspace state and is supplied to the next calculation for that ID. Omitting `state` retains the prior value. Functions, userdata, recursive tables, and values that cannot be converted to JSON reject the calculation and use generic recovery placement.
 
 Provider source is evaluated in a restricted Lua environment with table, string, math, and UTF-8 libraries. Memory and instruction limits apply to loading and every calculation. Operating-system access, file access, module loading, process spawning, and compositor globals are unavailable.
 

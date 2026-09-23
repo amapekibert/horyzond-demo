@@ -5,7 +5,9 @@
 
 #![allow(clippy::cast_precision_loss)]
 
-use mlua::{Error as LuaError, HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
+use mlua::{
+    Error as LuaError, HookTriggers, Lua, LuaOptions, LuaSerdeExt, StdLib, Table, Value, VmState,
+};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -64,6 +66,8 @@ pub struct LayoutState {
     version: u32,
     active_layout: LayoutId,
     geometry: BTreeMap<LayoutId, BTreeMap<WindowId, Rect>>,
+    #[serde(default)]
+    provider_state: BTreeMap<LayoutId, serde_json::Value>,
 }
 impl LayoutState {
     /// Current format revision for serialized layout state.
@@ -78,6 +82,21 @@ impl LayoutState {
             version: Self::VERSION,
             active_layout,
             geometry,
+            provider_state: BTreeMap::new(),
+        }
+    }
+    /// Adds opaque data-only state owned by independent providers.
+    #[must_use]
+    pub fn with_provider_state(
+        active_layout: LayoutId,
+        geometry: BTreeMap<LayoutId, BTreeMap<WindowId, Rect>>,
+        provider_state: BTreeMap<LayoutId, serde_json::Value>,
+    ) -> Self {
+        Self {
+            version: Self::VERSION,
+            active_layout,
+            geometry,
+            provider_state,
         }
     }
     /// Returns the active layout recorded in this state.
@@ -90,10 +109,25 @@ impl LayoutState {
     pub fn geometry(&self, layout: &LayoutId) -> Option<&BTreeMap<WindowId, Rect>> {
         self.geometry.get(layout)
     }
+    /// Returns opaque data-only state saved by one provider.
+    #[must_use]
+    pub fn provider_state(&self, layout: &LayoutId) -> Option<&serde_json::Value> {
+        self.provider_state.get(layout)
+    }
     /// Consumes this state into its data-only geometry map.
     #[must_use]
     pub fn into_geometry(self) -> BTreeMap<LayoutId, BTreeMap<WindowId, Rect>> {
         self.geometry
+    }
+    /// Consumes this state into geometry and opaque provider-state maps.
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        BTreeMap<LayoutId, BTreeMap<WindowId, Rect>>,
+        BTreeMap<LayoutId, serde_json::Value>,
+    ) {
+        (self.geometry, self.provider_state)
     }
     /// Encodes a deterministic JSON document for persistence or diagnosis.
     ///
@@ -141,12 +175,14 @@ pub struct LayoutInput<'a> {
     pub bounds: Rect,
     pub existing: &'a BTreeMap<WindowId, Rect>,
     pub focused: Option<WindowId>,
+    pub provider_state: Option<&'a serde_json::Value>,
 }
 /// Validated data returned by a layout provider.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutOutput {
     pub geometry: BTreeMap<WindowId, Rect>,
     pub order: Vec<WindowId>,
+    pub provider_state: serde_json::Value,
 }
 impl LayoutOutput {
     /// Creates output with the provider's geometry and stable input order.
@@ -155,6 +191,10 @@ impl LayoutOutput {
         Self {
             geometry,
             order: input.windows.to_vec(),
+            provider_state: input
+                .provider_state
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
         }
     }
 }
@@ -162,7 +202,7 @@ impl LayoutOutput {
 pub trait LayoutEngine {
     /// Returns the opaque ID selected by configuration.
     fn id(&self) -> &LayoutId;
-    /// Calculates one rectangle and one paint-order entry for every supplied window.
+    /// Calculates geometry, paint order, and data-only provider state.
     fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput;
 }
 
@@ -288,6 +328,8 @@ impl LuaLayout {
                 windows,
                 rectangle_table(&lua, input.bounds)?,
                 lua.create_table().map_err(|error| error.to_string())?,
+                lua.to_value(input.provider_state.unwrap_or(&serde_json::Value::Null))
+                    .map_err(|error| error.to_string())?,
             ))
             .map_err(|error| error.to_string())?;
         let mut output = BTreeMap::new();
@@ -301,9 +343,11 @@ impl LuaLayout {
             output.insert(*window_id, read_rect(&table)?);
         }
         let order = read_order(&result, input)?;
+        let provider_state = read_provider_state(&lua, &result, input)?;
         Ok(LayoutOutput {
             geometry: output,
             order,
+            provider_state,
         })
     }
 }
@@ -469,6 +513,21 @@ fn read_order(result: &Table, input: &LayoutInput<'_>) -> Result<Vec<WindowId>, 
     Ok(ordered)
 }
 
+fn read_provider_state(
+    lua: &Lua,
+    result: &Table,
+    input: &LayoutInput<'_>,
+) -> Result<serde_json::Value, String> {
+    let value: Value = result.get("state").map_err(|error| error.to_string())?;
+    if matches!(value, Value::Nil) {
+        return Ok(input
+            .provider_state
+            .cloned()
+            .unwrap_or(serde_json::Value::Null));
+    }
+    lua.from_value(value).map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,6 +540,7 @@ mod tests {
             bounds: Rect::new(0., 0., 100., 100.).expect("bounds"),
             existing,
             focused: None,
+            provider_state: None,
         }
     }
     fn source(name: &str, body: &str) -> String {
@@ -564,6 +624,31 @@ mod tests {
             limits: ScriptLimits::default(),
         };
         assert_eq!(layout.calculate(&input(&ids, &existing)).order, ids);
+    }
+    #[test]
+    fn lua_provider_receives_and_returns_data_only_state() {
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        let state = serde_json::json!({ "count": 2, "name": "custom" });
+        let layout = LuaLayout {
+            id: id("stateful"),
+            source: source(
+                "stateful",
+                "function calculate(windows, bounds, camera, state) return { [1] = { x = 0, y = 0, width = 10, height = 10 }, state = { count = state.count + 1, name = state.name } } end",
+            ),
+            limits: ScriptLimits::default(),
+        };
+        let result = layout.calculate(&LayoutInput {
+            windows: &ids,
+            bounds: Rect::new(0., 0., 100., 100.).expect("bounds"),
+            existing: &existing,
+            focused: None,
+            provider_state: Some(&state),
+        });
+        assert_eq!(
+            result.provider_state,
+            serde_json::json!({ "count": 3, "name": "custom" })
+        );
     }
     #[test]
     fn provider_map_discovers_an_unlisted_custom_layout() {
@@ -727,12 +812,13 @@ mod tests {
     #[test]
     fn layout_state_round_trips_without_provider_code() {
         let custom = id("custom");
-        let state = LayoutState::new(
+        let state = LayoutState::with_provider_state(
             custom.clone(),
             BTreeMap::from([(
-                custom,
+                custom.clone(),
                 BTreeMap::from([(WindowId::new(7), Rect::new(1., 2., 3., 4.).expect("rect"))]),
             )]),
+            BTreeMap::from([(custom, serde_json::json!({ "selected": 7 }))]),
         );
         let json = state.to_json().expect("encode");
         assert!(!json.contains("function"));

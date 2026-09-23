@@ -28,6 +28,7 @@ pub struct Workspace {
     focused: Option<WindowId>,
     layout: LayoutId,
     layout_geometry: BTreeMap<LayoutId, BTreeMap<WindowId, Rect>>,
+    provider_state: BTreeMap<LayoutId, serde_json::Value>,
 }
 impl Workspace {
     fn new(id: WorkspaceId) -> Self {
@@ -38,6 +39,7 @@ impl Workspace {
             focused: None,
             layout: LayoutId::new("default").expect("constant ID"),
             layout_geometry: BTreeMap::new(),
+            provider_state: BTreeMap::new(),
         }
     }
     #[must_use]
@@ -49,11 +51,17 @@ impl Workspace {
         &self.layout
     }
     fn state(&self) -> LayoutState {
-        LayoutState::new(self.layout.clone(), self.layout_geometry.clone())
+        LayoutState::with_provider_state(
+            self.layout.clone(),
+            self.layout_geometry.clone(),
+            self.provider_state.clone(),
+        )
     }
     fn restore(&mut self, state: LayoutState, windows: &BTreeSet<WindowId>) {
         self.layout = state.active_layout().clone();
-        self.layout_geometry = state.into_geometry();
+        let (layout_geometry, provider_state) = state.into_parts();
+        self.layout_geometry = layout_geometry;
+        self.provider_state = provider_state;
         for geometry in self.layout_geometry.values_mut() {
             geometry.retain(|window, _| windows.contains(window));
         }
@@ -174,16 +182,21 @@ impl CoreState {
             .entry(layout.clone())
             .or_default()
             .clone();
+        let provider_state = workspace.provider_state.get(&layout).cloned();
         let result = engine.calculate(&LayoutInput {
             windows: &windows,
             bounds,
             existing: &existing,
             focused: workspace.focused,
+            provider_state: provider_state.as_ref(),
         });
         for (window, geometry) in &result.geometry {
             workspace.scene.set_window(*window, *geometry);
         }
         let _ = workspace.scene.set_order(&result.order);
+        workspace
+            .provider_state
+            .insert(layout.clone(), result.provider_state);
         workspace.layout_geometry.insert(layout, result.geometry);
     }
     #[must_use]
@@ -251,6 +264,38 @@ mod tests {
                     .map(|window| (*window, bounds))
                     .collect(),
                 order: input.windows.iter().rev().copied().collect(),
+                provider_state: serde_json::Value::Null,
+            }
+        }
+    }
+
+    struct StatefulLayout {
+        id: LayoutId,
+    }
+    impl LayoutEngine for StatefulLayout {
+        fn id(&self) -> &LayoutId {
+            &self.id
+        }
+
+        fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput {
+            let count = input
+                .provider_state
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0)
+                + 1;
+            LayoutOutput {
+                geometry: input
+                    .windows
+                    .iter()
+                    .map(|window| {
+                        (
+                            *window,
+                            Rect::new(0., 0., 20., 20.).expect("constant rectangle"),
+                        )
+                    })
+                    .collect(),
+                order: input.windows.to_vec(),
+                provider_state: serde_json::json!(count),
             }
         }
     }
@@ -286,6 +331,24 @@ mod tests {
                 .scene
                 .pick(Point::new(1., 1.).expect("point")),
             Some(WindowId::new(1))
+        );
+    }
+    #[test]
+    fn provider_state_is_preserved_per_opaque_layout_id() {
+        let mut core = CoreState::default();
+        core.apply_event(BackendEvent::WindowMapped(WindowId::new(1)))
+            .expect("map");
+        let layout = StatefulLayout {
+            id: LayoutId::new("stateful-plugin").expect("ID"),
+        };
+        let bounds = Rect::new(0., 0., 100., 100.).expect("bounds");
+        core.apply_layout(&layout, bounds);
+        core.apply_layout(&layout, bounds);
+        assert_eq!(
+            core.active_layout_state()
+                .provider_state(layout.id())
+                .and_then(serde_json::Value::as_u64),
+            Some(2)
         );
     }
     #[test]

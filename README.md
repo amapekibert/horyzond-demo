@@ -71,10 +71,11 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Retain an individual provider's last valid implementation when its reload fails.
 - [x] Synchronize accepted configuration generations to providers without coupling core to configuration.
 - [x] Poll configuration and reapply accepted provider generations in the headless runtime.
-- [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
+- [x] Serialize versioned, data-only provider state and migrate compatible geometry through provider reload.
 - [x] Let a provider return validated world geometry and paint order.
 - [x] Allow callers to select any configured opaque provider through the neutral runtime.
-- [ ] Extend the provider protocol with provider-defined interaction and state callbacks.
+- [x] Preserve JSON-compatible provider state without storing Lua closures.
+- [ ] Extend the provider protocol with provider-defined interaction callbacks.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow
