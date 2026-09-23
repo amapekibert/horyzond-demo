@@ -9,6 +9,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use wm_script::{LoadedScript, ScriptLimits, ScriptLoader};
 
 /// Resolves the Horyzond configuration directory.
@@ -60,8 +63,7 @@ impl ConfigPath {
     ///
     /// Returns an error when the lock cannot be acquired.
     pub fn acquire_instance_lock_at(&self, runtime: &Path) -> Result<InstanceLock, ConfigError> {
-        let directory = runtime.join("horyzond");
-        fs::create_dir_all(&directory)?;
+        let directory = Self::runtime_directory_at(runtime)?;
         let lock_path = directory.join(format!("{}.lock", stable_path_hash(&self.root)));
         match OpenOptions::new()
             .create_new(true)
@@ -78,6 +80,37 @@ impl ConfigPath {
             }
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Returns the private runtime socket path for this configuration root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `XDG_RUNTIME_DIR` is unavailable or the private
+    /// Horyzond runtime directory cannot be prepared.
+    pub fn ipc_socket_path(&self) -> Result<PathBuf, ConfigError> {
+        let runtime =
+            std::env::var_os("XDG_RUNTIME_DIR").ok_or(ConfigError::MissingRuntimeDirectory)?;
+        self.ipc_socket_path_at(Path::new(&runtime))
+    }
+
+    /// Returns the socket path below an explicit private runtime directory.
+    /// This variant exists for isolated tests and nested instances.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the directory cannot be prepared.
+    pub fn ipc_socket_path_at(&self, runtime: &Path) -> Result<PathBuf, ConfigError> {
+        Ok(Self::runtime_directory_at(runtime)?
+            .join(format!("{}.sock", stable_path_hash(&self.root))))
+    }
+
+    fn runtime_directory_at(runtime: &Path) -> Result<PathBuf, ConfigError> {
+        let directory = runtime.join("horyzond");
+        fs::create_dir_all(&directory)?;
+        #[cfg(unix)]
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+        Ok(directory)
     }
 }
 

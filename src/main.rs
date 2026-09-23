@@ -9,6 +9,7 @@ use wm_backend_headless::HeadlessBackend;
 use wm_config::{ConfigManager, ConfigPath, ReloadOutcome, install_defaults};
 use wm_core::CoreState;
 use wm_diagnostics::{LogLevel, SessionId, SessionLogger, install_panic_hook};
+use wm_ipc::{IpcServer, Request, Response};
 use wm_render::{RecordingRenderer, Renderer};
 use wm_runtime::{LayoutRuntime, LayoutRuntimeUpdate};
 use wm_script::ScriptLimits;
@@ -80,6 +81,13 @@ fn main() {
         eprintln!("failed to initialize the headless backend: {error}");
         std::process::exit(1);
     }
+    let ipc = match config.ipc_socket_path().and_then(|path| {
+        IpcServer::bind(path)
+            .map_err(|error| wm_config::ConfigError::Io(std::io::Error::other(error)))
+    }) {
+        Ok(server) => server,
+        Err(error) => exit_with_error(&error.to_string()),
+    };
 
     println!(
         "Horyzond headless runtime is ready: {} output(s), {} layout, renderer capabilities: {:?}",
@@ -88,7 +96,13 @@ fn main() {
         renderer.capabilities()
     );
     if !options.once {
-        run_headless_loop(&mut configuration, &mut runtime, &mut core, &mut logger);
+        run_headless_loop(
+            &mut configuration,
+            &mut runtime,
+            &mut core,
+            &mut logger,
+            &ipc,
+        );
     }
     if let Err(error) = logger.close() {
         exit_with_error(&error.to_string());
@@ -100,9 +114,13 @@ fn run_headless_loop(
     runtime: &mut LayoutRuntime,
     core: &mut CoreState,
     logger: &mut SessionLogger,
+    ipc: &IpcServer,
 ) {
     let bounds = Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds");
     loop {
+        if let Err(error) = ipc.poll(|request| handle_ipc(&request, configuration, runtime, core)) {
+            let _ = logger.record(LogLevel::Warn, "ipc", &error.to_string());
+        }
         std::thread::sleep(std::time::Duration::from_millis(150));
         match configuration.reload_if_changed() {
             ReloadOutcome::Unchanged => {}
@@ -128,6 +146,31 @@ fn run_headless_loop(
                 }
             },
         }
+    }
+}
+
+fn handle_ipc(
+    request: &Request,
+    configuration: &ConfigManager,
+    runtime: &LayoutRuntime,
+    core: &CoreState,
+) -> Response {
+    let result = match request.method.as_str() {
+        "status" => Ok(serde_json::json!({
+            "configuration_generation": configuration.generation(),
+            "layout": runtime.default_layout().as_str(),
+            "mode": runtime.mode(),
+            "active_layout": core.active_workspace().layout().as_str(),
+        })),
+        "config.status" => Ok(serde_json::json!({
+            "generation": configuration.generation(),
+            "active": configuration.generation() > 0,
+        })),
+        _ => Err(format!("unknown IPC method: {}", request.method)),
+    };
+    match result {
+        Ok(result) => Response::success(request, result),
+        Err(error) => Response::failure(request, error),
     }
 }
 

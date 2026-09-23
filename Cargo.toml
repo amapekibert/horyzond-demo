@@ -54,10 +54,12 @@ wm-config = { path = "crates/wm-config" }
 wm-core = { path = "crates/wm-core" }
 wm-diagnostics = { path = "crates/wm-diagnostics" }
 wm-layout = { path = "crates/wm-layout" }
+wm-ipc = { path = "crates/wm-ipc" }
 wm-render = { path = "crates/wm-render" }
 wm-runtime = { path = "crates/wm-runtime" }
 wm-script = { path = "crates/wm-script" }
 wm-types = { path = "crates/wm-types" }
+serde_json = "1"
 
 [lints]
 workspace = true

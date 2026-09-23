@@ -1,6 +1,7 @@
 //! Offline configuration utility; IPC transport integration follows in P5.
 
 use wm_config::{ConfigManager, ConfigPath, ReloadOutcome};
+use wm_ipc::{Request, VERSION, request};
 use wm_script::ScriptLimits;
 
 fn main() {
@@ -8,12 +9,10 @@ fn main() {
     let Some(command) = arguments.next() else {
         usage();
     };
-    let subcommand = arguments.next();
-    if command != "config"
-        || !matches!(
-            subcommand.as_deref(),
-            Some(value) if value == "check" || value == "status"
-        )
+    let subcommand = (command == "config").then(|| arguments.next()).flatten();
+    if !((command == "config"
+        && matches!(subcommand.as_deref(), Some(value) if value == "check" || value == "status"))
+        || (command == "status" && subcommand.is_none()))
     {
         usage();
     }
@@ -30,6 +29,27 @@ fn main() {
     let path = config
         .map_or_else(ConfigPath::default_for_current_user, Ok)
         .unwrap_or_else(|error| fail(&error.to_string()));
+    if command == "status" {
+        let socket = path
+            .ipc_socket_path()
+            .unwrap_or_else(|error| fail(&error.to_string()));
+        let response = request(
+            &socket,
+            &Request {
+                version: VERSION,
+                id: 1,
+                method: "status".to_owned(),
+                params: serde_json::Value::Null,
+            },
+        )
+        .unwrap_or_else(|error| fail(&error.to_string()));
+        match (response.result, response.error) {
+            (Some(result), None) => println!("{result}"),
+            (_, Some(error)) => fail(&error),
+            _ => fail("invalid IPC response"),
+        }
+        return;
+    }
     let mut manager = ConfigManager::new(&path, ScriptLimits::default())
         .unwrap_or_else(|error| fail(&error.to_string()));
     match manager.load_initial() {
@@ -45,7 +65,7 @@ fn main() {
     }
 }
 fn usage() -> ! {
-    eprintln!("Usage: horyctl config <check|status> [--config-dir PATH]");
+    eprintln!("Usage: horyctl <status|config <check|status>> [--config-dir PATH]");
     std::process::exit(2)
 }
 fn fail(message: &str) -> ! {
