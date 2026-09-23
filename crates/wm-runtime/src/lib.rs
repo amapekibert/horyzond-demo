@@ -8,6 +8,7 @@ use wm_config::ConfigManager;
 use wm_core::CoreState;
 use wm_input::{InputCommand, InputOutcome, InputState};
 use wm_layout::{LayoutId, LayoutInteraction, LayoutProviders, ProviderReload};
+use wm_rules::{Match as RuleMatch, Rule, RuleAction, RuleEngine, WindowMetadata};
 use wm_types::Rect;
 
 /// The result of synchronizing one accepted configuration generation.
@@ -41,6 +42,7 @@ pub struct LayoutRuntime {
     default_layout: LayoutId,
     providers: LayoutProviders,
     input: InputState,
+    rules: RuleEngine,
 }
 impl LayoutRuntime {
     /// Creates a bridge from an already accepted configuration candidate.
@@ -65,6 +67,7 @@ impl LayoutRuntime {
             default_layout,
             providers: LayoutProviders::from_layout_paths(paths),
             input,
+            rules: active_rules(configuration)?,
         })
     }
 
@@ -93,6 +96,7 @@ impl LayoutRuntime {
                     .ok_or(LayoutRuntimeError::NoActiveConfiguration)?,
             )
             .map_err(LayoutRuntimeError::Input)?;
+        self.rules = active_rules(configuration)?;
         self.default_layout = default_layout;
         self.generation = configuration.generation();
         Ok(LayoutRuntimeUpdate::Applied {
@@ -155,6 +159,11 @@ impl LayoutRuntime {
     pub fn mode(&self) -> &str {
         self.input.current_mode().as_str()
     }
+    /// Evaluates the active generation's deterministic data-only rules once.
+    #[must_use]
+    pub fn evaluate_rules(&self, metadata: &WindowMetadata) -> Vec<RuleAction> {
+        self.rules.evaluate(metadata).actions
+    }
 
     /// Reapplies the active workspace layout after a provider reload.
     pub fn reapply_active(&self, core: &mut CoreState, bounds: Rect) {
@@ -174,6 +183,33 @@ fn active_layout_id(configuration: &ConfigManager) -> Result<LayoutId, LayoutRun
         .default_layout()
         .ok_or(LayoutRuntimeError::NoActiveConfiguration)?;
     LayoutId::new(name.to_owned()).map_err(LayoutRuntimeError::InvalidLayoutId)
+}
+
+fn active_rules(configuration: &ConfigManager) -> Result<RuleEngine, LayoutRuntimeError> {
+    let rules = configuration
+        .rules()
+        .ok_or(LayoutRuntimeError::NoActiveConfiguration)?;
+    Ok(RuleEngine::new(
+        rules
+            .iter()
+            .map(|rule| Rule {
+                priority: rule.priority,
+                matcher: RuleMatch {
+                    app_id_contains: rule.app_id_contains.clone(),
+                    title_contains: rule.title_contains.clone(),
+                },
+                actions: rule
+                    .actions
+                    .iter()
+                    .map(|action| RuleAction {
+                        name: action.name.clone(),
+                        arguments: action.arguments.clone(),
+                    })
+                    .collect(),
+                stop: rule.stop,
+            })
+            .collect(),
+    ))
 }
 
 /// A runtime-to-configuration bridge failure.
@@ -354,6 +390,34 @@ mod tests {
             core.active_layout_state()
                 .provider_state(core.active_workspace().layout()),
             Some(&serde_json::json!({ "count": 11 }))
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn runtime_evaluates_rules_from_the_active_configuration_generation() {
+        let root = root();
+        let path = ConfigPath::from_override(&root);
+        install_defaults(&path).expect("defaults");
+        fs::write(
+            root.join("config.lua"),
+            "settings = { default_layout = 'spatial' }\nmodes = {}\nlayouts = { spatial = 'layouts/spatial.lua' }\nrules = { { priority = 1, match = { app_id_contains = 'term' }, actions = { { action = 'select_layout', arguments = { 'spatial' } } }, stop = true } }\n",
+        )
+        .expect("config");
+        let mut configuration =
+            ConfigManager::new(&path, ScriptLimits::default()).expect("configuration");
+        let _ = configuration.load_initial();
+        let runtime = LayoutRuntime::from_config(&configuration).expect("runtime");
+        assert_eq!(
+            runtime
+                .evaluate_rules(&wm_rules::WindowMetadata {
+                    app_id: "terminal".to_owned(),
+                    title: String::new(),
+                })
+                .first()
+                .expect("matched action")
+                .name,
+            "select_layout"
         );
         fs::remove_dir_all(root).expect("cleanup");
     }

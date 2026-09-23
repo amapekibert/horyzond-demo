@@ -290,6 +290,13 @@ impl ConfigManager {
     pub fn input(&self) -> Option<&wm_script::InputConfig> {
         self.active.as_ref().map(|candidate| &candidate.input)
     }
+    /// Returns deterministic data-only window rules from the active candidate.
+    #[must_use]
+    pub fn rules(&self) -> Option<&[wm_script::RuleConfig]> {
+        self.active
+            .as_ref()
+            .map(|candidate| candidate.rules.as_slice())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -501,7 +508,7 @@ mod tests {
         fs::create_dir_all(&root).expect("root");
         fs::write(
             root.join("config.lua"),
-            "settings = {}\nmodes = {}\nlayouts = {}\n",
+            "settings = {}\nmodes = {}\nlayouts = {}\nrules = {}\n",
         )
         .expect("valid config");
         let config = ConfigPath::from_override(&root);

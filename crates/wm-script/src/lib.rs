@@ -38,6 +38,8 @@ pub struct LoadedScript {
     pub default_layout: String,
     /// Data-only modal bindings extracted from `modes` and `keybinds`.
     pub input: InputConfig,
+    /// Data-only deterministic window rules from the active candidate.
+    pub rules: Vec<RuleConfig>,
 }
 /// Data-only modal configuration owned by the Lua configuration candidate.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,6 +54,21 @@ pub struct InputBinding {
     pub action: String,
     pub arguments: Vec<String>,
     pub next_mode: Option<String>,
+}
+/// One configured window rule with literal metadata predicates.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuleConfig {
+    pub priority: u32,
+    pub app_id_contains: Option<String>,
+    pub title_contains: Option<String>,
+    pub actions: Vec<RuleActionConfig>,
+    pub stop: bool,
+}
+/// One opaque action selected by a configured rule.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuleActionConfig {
+    pub name: String,
+    pub arguments: Vec<String>,
 }
 
 /// Loads one configuration root and all files imported with `source()`.
@@ -119,6 +136,7 @@ impl ScriptLoader {
         let layout_paths = extract_layout_paths(&lua, &self.root)?;
         let default_layout = extract_default_layout(&lua)?;
         let input = extract_input(&lua)?;
+        let rules = extract_rules(&lua)?;
         state
             .borrow_mut()
             .dependencies
@@ -128,8 +146,80 @@ impl ScriptLoader {
             layout_paths,
             default_layout,
             input,
+            rules,
         })
     }
+}
+
+fn extract_rules(lua: &Lua) -> Result<Vec<RuleConfig>, ScriptError> {
+    const MAX_RULES: usize = 256;
+    const MAX_ACTIONS_PER_RULE: usize = 64;
+    let Some(rules) = lua
+        .globals()
+        .get::<Option<mlua::Table>>("rules")
+        .map_err(ScriptError::Lua)?
+    else {
+        return Ok(Vec::new());
+    };
+    let mut extracted = Vec::new();
+    for entry in rules.sequence_values::<mlua::Table>() {
+        if extracted.len() == MAX_RULES {
+            return Err(ScriptError::Schema(
+                "rules exceeds its 256-entry limit".to_owned(),
+            ));
+        }
+        let entry = entry.map_err(ScriptError::Lua)?;
+        let matcher = entry
+            .get::<Option<mlua::Table>>("match")
+            .map_err(ScriptError::Lua)?;
+        let app_id_contains = matcher
+            .as_ref()
+            .map(|table| table.get::<Option<String>>("app_id_contains"))
+            .transpose()
+            .map_err(ScriptError::Lua)?
+            .flatten();
+        let title_contains = matcher
+            .as_ref()
+            .map(|table| table.get::<Option<String>>("title_contains"))
+            .transpose()
+            .map_err(ScriptError::Lua)?
+            .flatten();
+        let actions: mlua::Table = entry.get("actions").map_err(ScriptError::Lua)?;
+        let mut configured_actions = Vec::new();
+        for action in actions.sequence_values::<mlua::Table>() {
+            if configured_actions.len() == MAX_ACTIONS_PER_RULE {
+                return Err(ScriptError::Schema(
+                    "a rule exceeds its 64-action limit".to_owned(),
+                ));
+            }
+            let action = action.map_err(ScriptError::Lua)?;
+            configured_actions.push(RuleActionConfig {
+                name: action.get("action").map_err(ScriptError::Lua)?,
+                arguments: action
+                    .get::<Option<mlua::Table>>("arguments")
+                    .map_err(ScriptError::Lua)?
+                    .map(|arguments| {
+                        arguments
+                            .sequence_values::<String>()
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(ScriptError::Lua)
+                    })
+                    .transpose()?
+                    .unwrap_or_default(),
+            });
+        }
+        extracted.push(RuleConfig {
+            priority: entry.get("priority").map_err(ScriptError::Lua)?,
+            app_id_contains,
+            title_contains,
+            actions: configured_actions,
+            stop: entry
+                .get::<Option<bool>>("stop")
+                .map_err(ScriptError::Lua)?
+                .unwrap_or(false),
+        });
+    }
+    Ok(extracted)
 }
 
 fn extract_input(lua: &Lua) -> Result<InputConfig, ScriptError> {
@@ -330,7 +420,7 @@ mod tests {
         fs::create_dir_all(&root).expect("root");
         fs::write(
             root.join("config.lua"),
-            "settings = {}\nmodes = {}\nlayouts = {}\nvalue = source('sub.lua')\nagain = source('sub.lua')\n",
+            "settings = {}\nmodes = {}\nlayouts = {}\nrules = {}\nvalue = source('sub.lua')\nagain = source('sub.lua')\n",
         )
         .expect("config");
         fs::write(root.join("sub.lua"), "return { enabled = true }\n").expect("sub");
@@ -347,7 +437,7 @@ mod tests {
         fs::create_dir_all(&root).expect("root");
         fs::write(
             root.join("config.lua"),
-            "settings = {}\nmodes = {}\nlayouts = {}\nsource('a.lua')\n",
+            "settings = {}\nmodes = {}\nlayouts = {}\nrules = {}\nsource('a.lua')\n",
         )
         .expect("config");
         fs::write(root.join("a.lua"), "source('config.lua')\n").expect("cycle");
@@ -404,5 +494,24 @@ mod tests {
         );
         fs::remove_dir_all(root).expect("cleanup root");
         fs::remove_file(outside).expect("cleanup outside");
+    }
+
+    #[test]
+    fn extracts_bounded_data_only_rules() {
+        let root = root();
+        fs::create_dir_all(&root).expect("root");
+        fs::write(
+            root.join("config.lua"),
+            "settings = {}\nmodes = {}\nlayouts = {}\nrules = { { priority = 2, match = { app_id_contains = 'term' }, actions = { { action = 'select_layout', arguments = { 'custom' } } }, stop = true } }\n",
+        )
+        .expect("config");
+        let loaded = ScriptLoader::new(&root, ScriptLimits::default())
+            .expect("loader")
+            .load()
+            .expect("load");
+        assert_eq!(loaded.rules.len(), 1);
+        assert_eq!(loaded.rules[0].app_id_contains.as_deref(), Some("term"));
+        assert_eq!(loaded.rules[0].actions[0].name, "select_layout");
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }
