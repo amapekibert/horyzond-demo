@@ -166,6 +166,22 @@ fn handle_ipc(
             "generation": configuration.generation(),
             "active": configuration.generation() > 0,
         })),
+        "windows.list" => Ok(serde_json::json!({
+            "windows": core.windows().map(wm_types::WindowId::get).collect::<Vec<_>>(),
+        })),
+        "workspaces.list" => Ok(serde_json::json!({
+            "active": core.active_workspace_id().get(),
+            "workspaces": core.workspaces().map(|workspace| serde_json::json!({
+                "id": workspace.id.get(),
+                "layout": workspace.layout().as_str(),
+                "focused_window": workspace.focused().map(wm_types::WindowId::get),
+                "camera": {
+                    "x": workspace.camera.position().x,
+                    "y": workspace.camera.position().y,
+                    "zoom": workspace.camera.zoom(),
+                },
+            })).collect::<Vec<_>>(),
+        })),
         _ => Err(format!("unknown IPC method: {}", request.method)),
     };
     match result {

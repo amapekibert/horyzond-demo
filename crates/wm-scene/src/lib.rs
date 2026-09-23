@@ -34,6 +34,16 @@ impl Camera2D {
         }
         Ok(Self { position, zoom })
     }
+    /// Returns the world-space camera origin.
+    #[must_use]
+    pub const fn position(self) -> Point {
+        self.position
+    }
+    /// Returns the camera scale factor.
+    #[must_use]
+    pub const fn zoom(self) -> f64 {
+        self.zoom
+    }
     /// Projects a world point into output-local logical coordinates.
     ///
     /// # Panics

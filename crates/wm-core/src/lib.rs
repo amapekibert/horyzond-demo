@@ -17,6 +17,11 @@ impl WorkspaceId {
     pub const fn new(value: u64) -> Self {
         Self(value)
     }
+    /// Returns the coordinator-assigned numeric value.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
 }
 
 /// Mutable state owned by one workspace.
@@ -244,6 +249,21 @@ impl CoreState {
     pub fn restore_active_layout_state(&mut self, state: LayoutState) {
         let windows = self.windows.clone();
         self.active_workspace_mut().restore(state, &windows);
+    }
+    /// Returns every mapped window ID in deterministic order.
+    #[must_use]
+    pub fn windows(&self) -> impl ExactSizeIterator<Item = WindowId> + '_ {
+        self.windows.iter().copied()
+    }
+    /// Returns every workspace in deterministic ID order.
+    #[must_use]
+    pub fn workspaces(&self) -> impl ExactSizeIterator<Item = &Workspace> + '_ {
+        self.workspaces.values()
+    }
+    /// Returns the selected workspace ID.
+    #[must_use]
+    pub const fn active_workspace_id(&self) -> WorkspaceId {
+        self.active_workspace
     }
     #[must_use]
     pub fn active_workspace(&self) -> &Workspace {
