@@ -9,6 +9,7 @@ use wm_backend_headless::HeadlessBackend;
 use wm_config::{ConfigManager, ConfigPath, ReloadOutcome, install_defaults};
 use wm_core::CoreState;
 use wm_diagnostics::{LogLevel, SessionId, SessionLogger, install_panic_hook};
+use wm_hooks::{HookDispatcher, HookEvent};
 use wm_ipc::{IpcServer, Request, Response};
 use wm_render::{RecordingRenderer, Renderer};
 use wm_runtime::{LayoutRuntime, LayoutRuntimeUpdate};
@@ -96,6 +97,7 @@ fn main() {
         renderer.capabilities()
     );
     if !options.once {
+        let mut hooks = HookDispatcher::new(256);
         run_headless_loop(
             &mut backend,
             &mut configuration,
@@ -103,6 +105,7 @@ fn main() {
             &mut core,
             &mut logger,
             &ipc,
+            &mut hooks,
         );
     }
     if let Err(error) = logger.close() {
@@ -117,6 +120,7 @@ fn run_headless_loop(
     core: &mut CoreState,
     logger: &mut SessionLogger,
     ipc: &IpcServer,
+    hooks: &mut HookDispatcher,
 ) {
     let bounds = Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds");
     loop {
@@ -138,12 +142,19 @@ fn run_headless_loop(
                                 );
                             }
                         }
+                        BackendEvent::WindowMapped(window) => {
+                            dispatch_hook(
+                                hooks,
+                                configuration,
+                                "on_window_open",
+                                &serde_json::json!({ "window_id": window.get() }),
+                                logger,
+                            );
+                        }
                         BackendEvent::WindowUnmapped(window) => {
                             runtime.forget_window_metadata(window);
                         }
-                        BackendEvent::OutputAdded(_)
-                        | BackendEvent::OutputRemoved(_)
-                        | BackendEvent::WindowMapped(_) => {}
+                        BackendEvent::OutputAdded(_) | BackendEvent::OutputRemoved(_) => {}
                     }
                 }
             }
@@ -180,6 +191,22 @@ fn run_headless_loop(
             },
         }
     }
+}
+
+fn dispatch_hook(
+    hooks: &mut HookDispatcher,
+    configuration: &ConfigManager,
+    event: &str,
+    payload: &serde_json::Value,
+    logger: &mut SessionLogger,
+) {
+    if configuration.hook_path(event).is_none() || !hooks.begin(HookEvent::Committed) {
+        return;
+    }
+    if let Err(error) = configuration.execute_hook(event, payload) {
+        let _ = logger.record(LogLevel::Warn, "hooks", &error.to_string());
+    }
+    hooks.finish();
 }
 
 #[allow(clippy::too_many_lines)]

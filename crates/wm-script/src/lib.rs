@@ -7,7 +7,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use mlua::{Error as LuaError, HookTriggers, Lua, LuaOptions, StdLib, Value, VmState};
+use mlua::{
+    Error as LuaError, Function, HookTriggers, Lua, LuaOptions, LuaSerdeExt, StdLib, Value, VmState,
+};
 
 /// Limits applied to every candidate configuration evaluation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,6 +42,8 @@ pub struct LoadedScript {
     pub input: InputConfig,
     /// Data-only deterministic window rules from the active candidate.
     pub rules: Vec<RuleConfig>,
+    /// Canonical hook paths keyed by user-selected lifecycle event name.
+    pub hook_paths: BTreeMap<String, PathBuf>,
 }
 /// Data-only modal configuration owned by the Lua configuration candidate.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -137,18 +141,72 @@ impl ScriptLoader {
         let default_layout = extract_default_layout(&lua)?;
         let input = extract_input(&lua)?;
         let rules = extract_rules(&lua)?;
+        let hook_paths = extract_hook_paths(&lua, &self.root)?;
         state
             .borrow_mut()
             .dependencies
             .extend(layout_paths.values().cloned());
+        state
+            .borrow_mut()
+            .dependencies
+            .extend(hook_paths.values().cloned());
         Ok(LoadedScript {
             dependencies: state.borrow().dependencies.clone(),
             layout_paths,
             default_layout,
             input,
             rules,
+            hook_paths,
         })
     }
+
+    /// Executes one configured hook in a fresh restricted Lua state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the hook is outside this configuration root,
+    /// invalid, or exceeds Lua resource limits.
+    pub fn execute_hook(&self, path: &Path, event: &serde_json::Value) -> Result<(), ScriptError> {
+        let path = fs::canonicalize(path).map_err(ScriptError::Io)?;
+        if !path.starts_with(&self.root) {
+            return Err(ScriptError::OutsideRoot(path));
+        }
+        let lua = restricted_lua(self.limits)?;
+        let source = fs::read_to_string(&path).map_err(ScriptError::Io)?;
+        let hook: Function = lua
+            .load(&source)
+            .set_name(path.to_string_lossy())
+            .eval()
+            .map_err(ScriptError::Lua)?;
+        hook.call::<()>(lua.to_value(event).map_err(ScriptError::Lua)?)
+            .map_err(ScriptError::Lua)
+    }
+}
+
+fn restricted_lua(limits: ScriptLimits) -> Result<Lua, ScriptError> {
+    let lua = Lua::new_with(
+        StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8,
+        LuaOptions::default(),
+    )
+    .map_err(ScriptError::Lua)?;
+    lua.set_memory_limit(limits.memory_bytes)
+        .map_err(ScriptError::Lua)?;
+    let remaining = Rc::new(RefCell::new(limits.instruction_limit));
+    lua.set_hook(
+        HookTriggers::new().every_nth_instruction(1_000),
+        move |_, _| {
+            let mut remaining = remaining.borrow_mut();
+            if *remaining < 1_000 {
+                return Err(LuaError::RuntimeError(
+                    "Horyzond Lua instruction limit exceeded".to_owned(),
+                ));
+            }
+            *remaining -= 1_000;
+            Ok(VmState::Continue)
+        },
+    )
+    .map_err(ScriptError::Lua)?;
+    Ok(lua)
 }
 
 fn extract_rules(lua: &Lua) -> Result<Vec<RuleConfig>, ScriptError> {
@@ -303,6 +361,32 @@ fn extract_layout_paths(lua: &Lua, root: &Path) -> Result<BTreeMap<String, PathB
         let Value::String(relative) = value else {
             return Err(ScriptError::Schema(format!(
                 "layouts.{name} must be a string path"
+            )));
+        };
+        let relative = relative.to_str().map_err(ScriptError::Lua)?;
+        let path = fs::canonicalize(root.join(relative.as_ref())).map_err(ScriptError::Io)?;
+        if !path.starts_with(root) {
+            return Err(ScriptError::OutsideRoot(path));
+        }
+        paths.insert(name, path);
+    }
+    Ok(paths)
+}
+
+fn extract_hook_paths(lua: &Lua, root: &Path) -> Result<BTreeMap<String, PathBuf>, ScriptError> {
+    let Some(hooks) = lua
+        .globals()
+        .get::<Option<mlua::Table>>("hooks")
+        .map_err(ScriptError::Lua)?
+    else {
+        return Ok(BTreeMap::new());
+    };
+    let mut paths = BTreeMap::new();
+    for pair in hooks.pairs::<String, Value>() {
+        let (name, value) = pair.map_err(ScriptError::Lua)?;
+        let Value::String(relative) = value else {
+            return Err(ScriptError::Schema(format!(
+                "hooks.{name} must be a string path"
             )));
         };
         let relative = relative.to_str().map_err(ScriptError::Lua)?;
@@ -512,6 +596,31 @@ mod tests {
         assert_eq!(loaded.rules.len(), 1);
         assert_eq!(loaded.rules[0].app_id_contains.as_deref(), Some("term"));
         assert_eq!(loaded.rules[0].actions[0].name, "select_layout");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn executes_a_configured_hook_with_data_only_event_data() {
+        let root = root();
+        fs::create_dir_all(root.join("hooks")).expect("hooks");
+        fs::write(
+            root.join("config.lua"),
+            "settings = {}\nmodes = {}\nlayouts = {}\nhooks = { opened = 'hooks/opened.lua' }\n",
+        )
+        .expect("config");
+        fs::write(
+            root.join("hooks/opened.lua"),
+            "return function(event) if event.window_id ~= 7 then error('wrong event') end end\n",
+        )
+        .expect("hook");
+        let loader = ScriptLoader::new(&root, ScriptLimits::default()).expect("loader");
+        let candidate = loader.load().expect("load");
+        loader
+            .execute_hook(
+                &candidate.hook_paths["opened"],
+                &serde_json::json!({ "window_id": 7 }),
+            )
+            .expect("hook execution");
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

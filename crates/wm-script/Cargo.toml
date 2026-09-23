@@ -9,7 +9,8 @@ repository.workspace = true
 description = "Bounded Lua 5.4 configuration runtime for Horyzond."
 
 [dependencies]
-mlua = { version = "0.12.1", features = ["lua54", "vendored"] }
+mlua = { version = "0.12.1", features = ["lua54", "serialize", "vendored"] }
+serde_json = "1"
 
 [lints]
 workspace = true

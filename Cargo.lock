@@ -73,6 +73,7 @@ dependencies = [
  "wm-config",
  "wm-core",
  "wm-diagnostics",
+ "wm-hooks",
  "wm-ipc",
  "wm-layout",
  "wm-render",
@@ -367,6 +368,7 @@ dependencies = [
 name = "wm-config"
 version = "0.26.0"
 dependencies = [
+ "serde_json",
  "wm-script",
 ]
 
@@ -457,6 +459,7 @@ name = "wm-script"
 version = "0.26.0"
 dependencies = [
  "mlua",
+ "serde_json",
 ]
 
 [[package]]

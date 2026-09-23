@@ -17,3 +17,7 @@ layouts = {
   tiling = "layouts/tiling.lua",
   stacking = "layouts/stacking.lua",
 }
+hooks = {
+  on_window_open = "hooks/on_window_open.lua",
+  on_workspace_change = "hooks/on_workspace_change.lua",
+}

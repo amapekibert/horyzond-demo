@@ -297,6 +297,32 @@ impl ConfigManager {
             .as_ref()
             .map(|candidate| candidate.rules.as_slice())
     }
+    /// Returns the configured hook path for a lifecycle event.
+    #[must_use]
+    pub fn hook_path(&self, event: &str) -> Option<&Path> {
+        self.active
+            .as_ref()?
+            .hook_paths
+            .get(event)
+            .map(PathBuf::as_path)
+    }
+    /// Executes one configured hook with a data-only event payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no hook is configured or Lua execution fails.
+    pub fn execute_hook(
+        &self,
+        event: &str,
+        payload: &serde_json::Value,
+    ) -> Result<(), ConfigError> {
+        let path = self
+            .hook_path(event)
+            .ok_or_else(|| ConfigError::MissingHook(event.to_owned()))?;
+        self.loader
+            .execute_hook(path, payload)
+            .map_err(ConfigError::Script)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -409,6 +435,7 @@ pub enum ConfigError {
     MissingHomeDirectory,
     MissingRuntimeDirectory,
     AlreadyRunning(PathBuf),
+    MissingHook(String),
     Script(wm_script::ScriptError),
     Io(io::Error),
 }
@@ -429,6 +456,7 @@ impl fmt::Display for ConfigError {
                     path.display()
                 )
             }
+            Self::MissingHook(event) => write!(formatter, "no hook is configured for {event}"),
             Self::Script(error) => error.fmt(formatter),
             Self::Io(error) => error.fmt(formatter),
         }
