@@ -13,7 +13,7 @@ fn main() {
         .then(|| arguments.next())
         .flatten();
     if !((command == "config"
-        && matches!(subcommand.as_deref(), Some(value) if value == "check" || value == "status"))
+        && matches!(subcommand.as_deref(), Some(value) if value == "check" || value == "status" || value == "reload"))
         || ((command == "status" || command == "windows" || command == "workspaces")
             && subcommand.is_none())
         || (command == "layout" && subcommand.as_deref() == Some(std::ffi::OsStr::new("select")))
@@ -78,6 +78,10 @@ fn main() {
         online(&path, "camera.set", params);
         return;
     }
+    if command == "config" && subcommand.as_deref() == Some(std::ffi::OsStr::new("reload")) {
+        online(&path, "config.reload", serde_json::Value::Null);
+        return;
+    }
     let mut manager = ConfigManager::new(&path, ScriptLimits::default())
         .unwrap_or_else(|error| fail(&error.to_string()));
     match manager.load_initial() {
@@ -94,7 +98,7 @@ fn main() {
 }
 fn usage() -> ! {
     eprintln!(
-        "Usage: horyctl <status|windows|workspaces|layout select ID|camera set X Y ZOOM|config <check|status>> [--config-dir PATH]"
+        "Usage: horyctl <status|windows|workspaces|layout select ID|camera set X Y ZOOM|config <check|reload|status>> [--config-dir PATH]"
     );
     std::process::exit(2)
 }

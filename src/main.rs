@@ -220,6 +220,26 @@ fn handle_ipc(
                 .map_err(|error| error.to_string())?;
             Ok(serde_json::json!({ "x": x, "y": y, "zoom": zoom }))
         })(),
+        "config.reload" => (|| match configuration.reload() {
+            ReloadOutcome::Rejected { diagnostic } => Err(diagnostic),
+            ReloadOutcome::Unchanged => Ok(serde_json::json!({
+                "generation": configuration.generation(),
+                "changed": false,
+            })),
+            ReloadOutcome::Applied { generation } => {
+                let update = runtime
+                    .synchronize(configuration)
+                    .map_err(|error| error.to_string())?;
+                runtime.reapply_active(
+                    core,
+                    Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds"),
+                );
+                Ok(serde_json::json!({
+                    "generation": generation,
+                    "changed": !matches!(update, LayoutRuntimeUpdate::Unchanged),
+                }))
+            }
+        })(),
         _ => Err(format!("unknown IPC method: {}", request.method)),
     };
     match result {
