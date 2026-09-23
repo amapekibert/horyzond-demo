@@ -171,7 +171,9 @@ fn run_headless_loop(
                 let _ = logger.record(LogLevel::Warn, "backend", &error.to_string());
             }
         }
-        if let Err(error) = ipc.poll(|request| handle_ipc(&request, configuration, runtime, core)) {
+        if let Err(error) =
+            ipc.poll(|request| handle_ipc(&request, configuration, runtime, core, hooks, logger))
+        {
             let _ = logger.record(LogLevel::Warn, "ipc", &error.to_string());
         }
         std::thread::sleep(std::time::Duration::from_millis(150));
@@ -233,6 +235,8 @@ fn handle_ipc(
     configuration: &mut ConfigManager,
     runtime: &mut LayoutRuntime,
     core: &mut CoreState,
+    hooks: &mut HookDispatcher,
+    logger: &mut SessionLogger,
 ) -> Response {
     let result = match request.method.as_str() {
         "status" => Ok(serde_json::json!({
@@ -265,6 +269,26 @@ fn handle_ipc(
                 },
             })).collect::<Vec<_>>(),
         })),
+        "workspace.switch" => (|| {
+            let workspace = request
+                .params
+                .get("workspace")
+                .and_then(serde_json::Value::as_u64)
+                .ok_or_else(|| {
+                    "workspace.switch requires an unsigned workspace parameter".to_owned()
+                })?;
+            core.switch_workspace(wm_core::WorkspaceId::new(workspace))
+                .map_err(|error| error.to_string())?;
+            dispatch_hook(
+                hooks,
+                configuration,
+                HookEvent::Committed,
+                "on_workspace_change",
+                &serde_json::json!({ "workspace_id": workspace }),
+                logger,
+            );
+            Ok(serde_json::json!({ "workspace": workspace }))
+        })(),
         "layout.select" => (|| {
             let layout = request
                 .params

@@ -10,10 +10,13 @@ fn main() {
     let Some(command) = arguments.next() else {
         usage();
     };
-    let subcommand =
-        (command == "config" || command == "layout" || command == "camera" || command == "spawn")
-            .then(|| arguments.next())
-            .flatten();
+    let subcommand = (command == "config"
+        || command == "layout"
+        || command == "camera"
+        || command == "spawn"
+        || command == "workspace")
+        .then(|| arguments.next())
+        .flatten();
     if !((command == "config"
         && matches!(subcommand.as_deref(), Some(value) if value == "check" || value == "status" || value == "reload"))
         || ((command == "status" || command == "windows" || command == "workspaces")
@@ -21,7 +24,9 @@ fn main() {
         || (command == "layout" && subcommand.as_deref() == Some(std::ffi::OsStr::new("select")))
         || (command == "camera" && subcommand.as_deref() == Some(std::ffi::OsStr::new("set")))
         || (command == "spawn"
-            && matches!(subcommand.as_deref(), Some(value) if value == "pending" || value == "cancel")))
+            && matches!(subcommand.as_deref(), Some(value) if value == "pending" || value == "cancel"))
+        || (command == "workspace"
+            && subcommand.as_deref() == Some(std::ffi::OsStr::new("switch"))))
     {
         usage();
     }
@@ -52,6 +57,14 @@ fn main() {
     } else if command == "spawn" && subcommand.as_deref() == Some(std::ffi::OsStr::new("pending")) {
         spawn = Some((arguments.next().unwrap_or_else(|| usage()), Vec::new()));
         serde_json::Value::Null
+    } else if command == "workspace" {
+        let workspace = arguments
+            .next()
+            .unwrap_or_else(|| usage())
+            .to_string_lossy()
+            .parse::<u64>()
+            .unwrap_or_else(|_| fail("workspace ID must be an unsigned integer"));
+        serde_json::json!({ "workspace": workspace })
     } else {
         serde_json::Value::Null
     };
@@ -86,6 +99,10 @@ fn main() {
     }
     if command == "camera" {
         online(&path, "camera.set", params);
+        return;
+    }
+    if command == "workspace" {
+        online(&path, "workspace.switch", params);
         return;
     }
     if command == "spawn" {
@@ -125,7 +142,7 @@ fn main() {
 }
 fn usage() -> ! {
     eprintln!(
-        "Usage: horyctl <status|windows|workspaces|layout select ID|camera set X Y ZOOM|spawn <pending EXECUTABLE [ARG...]|cancel>|config <check|reload|status>> [--config-dir PATH]"
+        "Usage: horyctl <status|windows|workspaces|workspace switch ID|layout select ID|camera set X Y ZOOM|spawn <pending EXECUTABLE [ARG...]|cancel>|config <check|reload|status>> [--config-dir PATH]"
     );
     std::process::exit(2)
 }
