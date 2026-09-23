@@ -391,6 +391,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wm-ipc"
+version = "0.26.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "wm-layout"
 version = "0.26.0"
 dependencies = [
