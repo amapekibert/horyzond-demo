@@ -1,8 +1,8 @@
 //! Deterministic virtual outputs and events for tests without graphics or a seat.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use wm_backend::{BackendError, BackendEvent, WindowSystem};
+use wm_backend::{BackendError, BackendEvent, ConfigureTransaction, WindowSystem};
 use wm_types::{Capabilities, OutputInfo, Rect, WindowId, WindowMetadata};
 
 /// A simple, deterministic backend for core and contract tests.
@@ -11,6 +11,8 @@ pub struct HeadlessBackend {
     outputs: Vec<OutputInfo>,
     events: VecDeque<BackendEvent>,
     mapped_windows: BTreeSet<WindowId>,
+    pending_configures: BTreeMap<WindowId, ConfigureTransaction>,
+    next_configure_serial: u64,
     initialized: bool,
 }
 
@@ -23,6 +25,8 @@ impl HeadlessBackend {
             outputs: outputs.into_iter().collect(),
             events: VecDeque::new(),
             mapped_windows: BTreeSet::new(),
+            pending_configures: BTreeMap::new(),
+            next_configure_serial: 1,
             initialized: false,
         }
     }
@@ -51,6 +55,7 @@ impl HeadlessBackend {
         if !self.mapped_windows.remove(&window) {
             return Err(BackendError::new(format!("{window} is not mapped")));
         }
+        self.pending_configures.remove(&window);
         self.events.push_back(BackendEvent::WindowUnmapped(window));
         Ok(())
     }
@@ -109,14 +114,37 @@ impl WindowSystem for HeadlessBackend {
     fn request_window_geometry(
         &mut self,
         window: WindowId,
-        _geometry: Rect,
-    ) -> Result<(), BackendError> {
+        geometry: Rect,
+    ) -> Result<ConfigureTransaction, BackendError> {
         self.require_initialized()?;
         if self.mapped_windows.contains(&window) {
-            Ok(())
+            let transaction = ConfigureTransaction {
+                window,
+                serial: self.next_configure_serial,
+                geometry,
+            };
+            self.next_configure_serial = self.next_configure_serial.saturating_add(1);
+            self.pending_configures.insert(window, transaction);
+            Ok(transaction)
         } else {
             Err(BackendError::new(format!(
                 "cannot configure unmapped {window}"
+            )))
+        }
+    }
+
+    fn acknowledge_configure(
+        &mut self,
+        transaction: ConfigureTransaction,
+    ) -> Result<(), BackendError> {
+        self.require_initialized()?;
+        if self.pending_configures.get(&transaction.window) == Some(&transaction) {
+            self.pending_configures.remove(&transaction.window);
+            Ok(())
+        } else {
+            Err(BackendError::new(format!(
+                "unknown or stale configure transaction {} for {}",
+                transaction.serial, transaction.window
             )))
         }
     }
@@ -155,12 +183,15 @@ mod tests {
                 BackendEvent::WindowMetadataChanged(_, _)
             ]
         ));
-        backend
+        let transaction = backend
             .request_window_geometry(
                 window,
                 Rect::new(0.0, 0.0, 200.0, 100.0).expect("valid geometry"),
             )
             .expect("mapped window accepts geometry");
+        backend
+            .acknowledge_configure(transaction)
+            .expect("matching transaction acknowledges");
         backend.unmap_window(window).expect("unmapping succeeds");
         assert!(
             backend
