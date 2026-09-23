@@ -65,6 +65,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Execute bounded, versioned Lua layout providers, validate configured provider paths, and reload when a provider changes.
 - [x] Select configured providers through the neutral core with an independent native fallback for each profile.
 - [x] Reject invalid provider declarations before they enter the active layout registry.
+- [x] Retain an individual provider's last valid implementation when its reload fails.
 - [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
 - [x] Keep explicit STACKING paint order independent from focus.
 - [x] Add validated TILING master ratios and gaps to the native fallback and Lua profile.

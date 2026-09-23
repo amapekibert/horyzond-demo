@@ -301,20 +301,49 @@ impl LayoutEngine for LuaLayout {
 pub struct LayoutProviders {
     providers: BTreeMap<LayoutId, LuaLayout>,
 }
+
+/// The independently committed result of replacing provider files.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ProviderReload {
+    /// IDs whose new providers passed validation and replaced the old entry.
+    pub applied: Vec<LayoutId>,
+    /// IDs retaining their previous validated provider after a failed update.
+    pub retained: Vec<LayoutId>,
+}
+
 impl LayoutProviders {
     /// Loads every named provider from canonical configuration paths.
     #[must_use]
     pub fn from_layout_paths(layout_paths: &BTreeMap<String, PathBuf>) -> Self {
-        let providers = layout_paths
-            .iter()
-            .filter_map(|(name, path)| {
-                let id = LayoutId::new(name.clone()).ok()?;
-                let provider = LuaLayout::from_file(id.clone(), path).ok()?;
-                provider.validate().ok()?;
-                Some((id, provider))
-            })
-            .collect();
-        Self { providers }
+        let mut providers = Self::default();
+        let _ = providers.reload(layout_paths);
+        providers
+    }
+
+    /// Replaces valid providers independently and retains a previous valid
+    /// provider when its new file is invalid. Removing an ID from the active
+    /// configuration intentionally removes it from this registry.
+    pub fn reload(&mut self, layout_paths: &BTreeMap<String, PathBuf>) -> ProviderReload {
+        let previous = std::mem::take(&mut self.providers);
+        let mut next = BTreeMap::new();
+        let mut result = ProviderReload::default();
+        for (name, path) in layout_paths {
+            let Ok(id) = LayoutId::new(name.clone()) else {
+                continue;
+            };
+            let candidate = LuaLayout::from_file(id.clone(), path)
+                .ok()
+                .filter(|provider| provider.validate().is_ok());
+            if let Some(provider) = candidate {
+                result.applied.push(id.clone());
+                next.insert(id, provider);
+            } else if let Some(previous) = previous.get(&id) {
+                result.retained.push(id.clone());
+                next.insert(id, previous.clone());
+            }
+        }
+        self.providers = next;
+        result
     }
     /// Returns the selected provider or generic recovery placement.
     #[must_use]
@@ -528,6 +557,75 @@ mod tests {
         ]));
         assert!(providers.is_configured(&id("valid")));
         assert!(!providers.is_configured(&id("invalid")));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn invalid_reload_keeps_only_the_previous_provider_for_that_id() {
+        let root = std::env::temp_dir().join(format!(
+            "horyzond-layout-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("root");
+        let retained_path = root.join("retained.lua");
+        let replaced_path = root.join("replaced.lua");
+        fs::write(
+            &retained_path,
+            source(
+                "retained",
+                "function calculate() return { [1] = { x = 1, y = 2, width = 3, height = 4 } } end",
+            ),
+        )
+        .expect("retained provider");
+        fs::write(
+            &replaced_path,
+            source(
+                "replaced",
+                "function calculate() return { [1] = { x = 5, y = 6, width = 7, height = 8 } } end",
+            ),
+        )
+        .expect("replaced provider");
+        let paths = BTreeMap::from([
+            ("retained".to_owned(), retained_path.clone()),
+            ("replaced".to_owned(), replaced_path.clone()),
+        ]);
+        let mut providers = LayoutProviders::from_layout_paths(&paths);
+        fs::write(&retained_path, "layout = { api_version = 1, id = 'wrong' }")
+            .expect("broken provider");
+        fs::write(
+            &replaced_path,
+            source(
+                "replaced",
+                "function calculate() return { [1] = { x = 9, y = 10, width = 11, height = 12 } } end",
+            ),
+        )
+        .expect("updated provider");
+        let result = providers.reload(&paths);
+        assert_eq!(result.retained, vec![id("retained")]);
+        assert_eq!(result.applied, vec![id("replaced")]);
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        assert!(
+            (providers
+                .provider(&id("retained"))
+                .calculate(&input(&ids, &existing))[&ids[0]]
+                .x
+                - 1.0)
+                .abs()
+                < f64::EPSILON
+        );
+        assert!(
+            (providers
+                .provider(&id("replaced"))
+                .calculate(&input(&ids, &existing))[&ids[0]]
+                .x
+                - 9.0)
+                .abs()
+                < f64::EPSILON
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
     #[test]
