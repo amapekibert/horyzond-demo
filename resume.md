@@ -17,7 +17,7 @@ Continue **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complet
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
 | P4 | Complete | Arbitrary providers have bounded calculation and interaction callbacks, validated output, isolated last-good reload handling, generic recovery, data-only state migration, cross-provider history, and independent per-workspace selection. |
-| P5 | In progress | Parse configured modal bindings and synchronize them safely, then add rules, hooks, versioned IPC, and `horyctl`. |
+| P5 | In progress | Modal bindings, deterministic rules, bounded hook policy, IPC framing, and offline `horyctl config check` exist. Add same-user IPC transport, routing and bounded subscriptions, configuration-backed rules/hooks, and the remaining `horyctl` commands. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
 | P8 | Not started | Layer shell, desktop protocols, clipboard, drag-and-drop, lock policy, and safe pending-spawn association. |
