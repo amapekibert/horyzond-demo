@@ -1,0 +1,22 @@
+[package]
+name = "wm-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Safe-boundary configuration and layout coordinator for Horyzond."
+
+[dependencies]
+wm-config = { path = "../wm-config" }
+wm-backend = { path = "../wm-backend" }
+wm-core = { path = "../wm-core" }
+wm-layout = { path = "../wm-layout" }
+wm-types = { path = "../wm-types" }
+
+[dev-dependencies]
+wm-script = { path = "../wm-script" }
+
+[lints]
+workspace = true

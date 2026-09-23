@@ -63,6 +63,7 @@ dependencies = [
  "wm-diagnostics",
  "wm-layout",
  "wm-render",
+ "wm-runtime",
  "wm-script",
  "wm-types",
 ]
@@ -357,6 +358,18 @@ dependencies = [
 name = "wm-render"
 version = "0.26.0"
 dependencies = [
+ "wm-types",
+]
+
+[[package]]
+name = "wm-runtime"
+version = "0.26.0"
+dependencies = [
+ "wm-backend",
+ "wm-config",
+ "wm-core",
+ "wm-layout",
+ "wm-script",
  "wm-types",
 ]
 

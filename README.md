@@ -35,6 +35,7 @@ crates/wm-types/             Platform-neutral IDs, geometry, capabilities
 crates/wm-backend/           Window-system adapter contract
 crates/wm-backend-headless/  Deterministic adapter for tests
 crates/wm-render/            Renderer contract and recording renderer
+crates/wm-runtime/           Safe-boundary configuration and layout coordinator
 docs/decisions/              Short architecture decisions
 examples/                    Upstream design references, excluded from the build
 ```
@@ -61,15 +62,16 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Create `latest.log`, archived session logs, and crash reports.
 - [x] Implement sandboxed Lua configuration with imports and transactional reload.
 - [x] Build the deterministic headless core, scene, camera, and damage foundations.
-- [x] Define all four native and Lua layout contracts.
-- [x] Execute bounded, versioned Lua layout providers, validate configured provider paths, and reload when a provider changes.
-- [x] Select configured providers through the neutral core with an independent native fallback for each profile.
+- [x] Define a neutral opaque layout-provider contract.
+- [x] Execute bounded, versioned Lua layout providers and validate configured provider paths.
+- [x] Select configured providers through the neutral core with generic recovery placement.
 - [x] Reject invalid provider declarations before they enter the active layout registry.
 - [x] Retain an individual provider's last valid implementation when its reload fails.
+- [x] Synchronize accepted configuration generations to providers without coupling core to configuration.
 - [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
-- [x] Keep explicit STACKING paint order independent from focus.
-- [x] Add validated TILING master ratios and gaps to the native fallback and Lua profile.
-- [ ] Add profile-specific navigation, placement, transient, and resize state beyond the shared geometry baseline.
+- [x] Keep explicit scene paint order independent from focus.
+- [ ] Add a long-running runtime loop that polls configuration and re-applies providers at safe boundaries.
+- [ ] Extend the provider protocol with provider-defined interaction and state callbacks.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow

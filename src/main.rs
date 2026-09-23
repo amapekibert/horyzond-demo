@@ -9,8 +9,8 @@ use wm_backend_headless::HeadlessBackend;
 use wm_config::{ConfigManager, ConfigPath, ReloadOutcome, install_defaults};
 use wm_core::CoreState;
 use wm_diagnostics::{LogLevel, SessionId, SessionLogger, install_panic_hook};
-use wm_layout::{LayoutId, LayoutProviders};
 use wm_render::{RecordingRenderer, Renderer};
+use wm_runtime::LayoutRuntime;
 use wm_script::ScriptLimits;
 use wm_types::{OutputInfo, Rect};
 
@@ -54,18 +54,13 @@ fn main() {
     if let ReloadOutcome::Rejected { diagnostic } = configuration.load_initial() {
         exit_with_error(&format!("initial configuration rejected: {diagnostic}"));
     }
-    let layout = LayoutId::new(configuration.default_layout().unwrap_or("default"))
-        .expect("configuration loader accepts non-empty layout names");
-    let providers = LayoutProviders::from_layout_paths(
-        configuration
-            .layout_paths()
-            .expect("successful configuration load has an active candidate"),
-    );
-    let configured_provider = providers.is_configured(&layout);
+    let runtime = match LayoutRuntime::from_config(&configuration) {
+        Ok(runtime) => runtime,
+        Err(error) => exit_with_error(&error.to_string()),
+    };
     let mut core = CoreState::default();
-    let provider = providers.provider(&layout);
-    core.apply_layout(
-        provider.as_ref(),
+    runtime.apply_default(
+        &mut core,
         Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds"),
     );
     if let Err(error) = logger.record(
@@ -73,12 +68,8 @@ fn main() {
         "layout",
         &format!(
             "selected {} profile with {} provider",
-            layout,
-            if configured_provider {
-                "configured Lua"
-            } else {
-                "native recovery"
-            }
+            runtime.default_layout(),
+            "active Lua or recovery"
         ),
     ) {
         exit_with_error(&error.to_string());
@@ -92,7 +83,7 @@ fn main() {
     println!(
         "Horyzond headless runtime is ready: {} output(s), {} layout, renderer capabilities: {:?}",
         backend.outputs().len(),
-        layout,
+        runtime.default_layout(),
         renderer.capabilities()
     );
     if let Err(error) = logger.close() {
