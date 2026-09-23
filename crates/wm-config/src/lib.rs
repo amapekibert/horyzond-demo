@@ -408,6 +408,14 @@ const DEFAULT_ASSETS: &[DefaultAsset] = &[
         contents: include_str!("../../../config/rules.d/dev.lua"),
     },
     DefaultAsset {
+        relative_path: "hooks/on_startup.lua",
+        contents: include_str!("../../../config/hooks/on_startup.lua"),
+    },
+    DefaultAsset {
+        relative_path: "hooks/on_reload.lua",
+        contents: include_str!("../../../config/hooks/on_reload.lua"),
+    },
+    DefaultAsset {
         relative_path: "hooks/on_window_open.lua",
         contents: include_str!("../../../config/hooks/on_window_open.lua"),
     },

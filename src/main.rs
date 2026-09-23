@@ -89,6 +89,15 @@ fn main() {
         Ok(server) => server,
         Err(error) => exit_with_error(&error.to_string()),
     };
+    let mut hooks = HookDispatcher::new(256);
+    dispatch_hook(
+        &mut hooks,
+        &configuration,
+        HookEvent::Startup,
+        "on_startup",
+        &serde_json::json!({ "generation": configuration.generation() }),
+        &mut logger,
+    );
 
     println!(
         "Horyzond headless runtime is ready: {} output(s), {} layout, renderer capabilities: {:?}",
@@ -97,7 +106,6 @@ fn main() {
         renderer.capabilities()
     );
     if !options.once {
-        let mut hooks = HookDispatcher::new(256);
         run_headless_loop(
             &mut backend,
             &mut configuration,
@@ -146,6 +154,7 @@ fn run_headless_loop(
                             dispatch_hook(
                                 hooks,
                                 configuration,
+                                HookEvent::Committed,
                                 "on_window_open",
                                 &serde_json::json!({ "window_id": window.get() }),
                                 logger,
@@ -183,6 +192,14 @@ fn run_headless_loop(
                             providers.retained.len()
                         ),
                     );
+                    dispatch_hook(
+                        hooks,
+                        configuration,
+                        HookEvent::Reload,
+                        "on_reload",
+                        &serde_json::json!({ "generation": generation }),
+                        logger,
+                    );
                 }
                 Ok(LayoutRuntimeUpdate::Unchanged) => {}
                 Err(error) => {
@@ -196,11 +213,12 @@ fn run_headless_loop(
 fn dispatch_hook(
     hooks: &mut HookDispatcher,
     configuration: &ConfigManager,
+    kind: HookEvent,
     event: &str,
     payload: &serde_json::Value,
     logger: &mut SessionLogger,
 ) {
-    if configuration.hook_path(event).is_none() || !hooks.begin(HookEvent::Committed) {
+    if configuration.hook_path(event).is_none() || !hooks.begin(kind) {
         return;
     }
     if let Err(error) = configuration.execute_hook(event, payload) {

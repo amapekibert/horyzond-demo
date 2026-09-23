@@ -18,6 +18,8 @@ layouts = {
   stacking = "layouts/stacking.lua",
 }
 hooks = {
+  on_startup = "hooks/on_startup.lua",
+  on_reload = "hooks/on_reload.lua",
   on_window_open = "hooks/on_window_open.lua",
   on_workspace_change = "hooks/on_workspace_change.lua",
 }
