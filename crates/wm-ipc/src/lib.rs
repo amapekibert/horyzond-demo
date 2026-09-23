@@ -7,6 +7,37 @@ use std::fmt;
 pub const VERSION: u32 = 1;
 /// Maximum accepted encoded message size.
 pub const MAX_FRAME_BYTES: usize = 64 * 1024;
+/// Default maximum number of active event subscriptions per client.
+pub const MAX_SUBSCRIPTIONS: usize = 32;
+
+/// Bounded transport-neutral subscription names for one client.
+#[derive(Debug, Default)]
+pub struct Subscriptions {
+    names: std::collections::BTreeSet<String>,
+}
+impl Subscriptions {
+    /// Adds a non-empty subscription if the bounded capacity permits it.
+    pub fn add(&mut self, name: impl Into<String>) -> bool {
+        let name = name.into();
+        !name.trim().is_empty()
+            && (self.names.contains(&name) || self.names.len() < MAX_SUBSCRIPTIONS)
+            && self.names.insert(name)
+    }
+    /// Removes a subscription name.
+    pub fn remove(&mut self, name: &str) -> bool {
+        self.names.remove(name)
+    }
+    /// Returns the number of active subscriptions.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+    /// Reports whether no subscriptions are active.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+}
 
 /// A client request with a caller-selected correlation ID.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
