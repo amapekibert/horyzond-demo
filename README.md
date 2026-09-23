@@ -48,10 +48,10 @@ Horyzond currently requires Rust 1.88 or later.
 cargo fmt --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo run
+cargo run -- --once
 ```
 
-The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--config-dir` is supplied), starts session diagnostics, and demonstrates headless composition with a virtual output. It does not yet create a visible compositor session.
+The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--config-dir` is supplied), starts session diagnostics, and runs a headless configuration polling loop. Use `--once` for bootstrap-only verification. It does not yet create a visible compositor session.
 
 ## Development TODO
 
@@ -68,9 +68,9 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Reject invalid provider declarations before they enter the active layout registry.
 - [x] Retain an individual provider's last valid implementation when its reload fails.
 - [x] Synchronize accepted configuration generations to providers without coupling core to configuration.
+- [x] Poll configuration and reapply accepted provider generations in the headless runtime.
 - [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
 - [x] Keep explicit scene paint order independent from focus.
-- [ ] Add a long-running runtime loop that polls configuration and re-applies providers at safe boundaries.
 - [ ] Extend the provider protocol with provider-defined interaction and state callbacks.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 

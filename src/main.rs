@@ -10,15 +10,16 @@ use wm_config::{ConfigManager, ConfigPath, ReloadOutcome, install_defaults};
 use wm_core::CoreState;
 use wm_diagnostics::{LogLevel, SessionId, SessionLogger, install_panic_hook};
 use wm_render::{RecordingRenderer, Renderer};
-use wm_runtime::LayoutRuntime;
+use wm_runtime::{LayoutRuntime, LayoutRuntimeUpdate};
 use wm_script::ScriptLimits;
 use wm_types::{OutputInfo, Rect};
 
 fn main() {
-    let config = match parse_config_path() {
-        Ok(config) => config,
+    let options = match parse_options() {
+        Ok(options) => options,
         Err(error) => exit_with_error(&error),
     };
+    let config = options.config;
     let _lock = match config.acquire_instance_lock() {
         Ok(lock) => lock,
         Err(error) => exit_with_error(&error.to_string()),
@@ -54,7 +55,7 @@ fn main() {
     if let ReloadOutcome::Rejected { diagnostic } = configuration.load_initial() {
         exit_with_error(&format!("initial configuration rejected: {diagnostic}"));
     }
-    let runtime = match LayoutRuntime::from_config(&configuration) {
+    let mut runtime = match LayoutRuntime::from_config(&configuration) {
         Ok(runtime) => runtime,
         Err(error) => exit_with_error(&error.to_string()),
     };
@@ -86,25 +87,81 @@ fn main() {
         runtime.default_layout(),
         renderer.capabilities()
     );
+    if !options.once {
+        run_headless_loop(&mut configuration, &mut runtime, &mut core, &mut logger);
+    }
     if let Err(error) = logger.close() {
         exit_with_error(&error.to_string());
     }
 }
 
-fn parse_config_path() -> Result<ConfigPath, String> {
-    let mut arguments = std::env::args_os().skip(1);
-    match arguments.next() {
-        None => ConfigPath::default_for_current_user().map_err(|error| error.to_string()),
-        Some(argument) if argument == "--config-dir" => arguments
-            .next()
-            .map(ConfigPath::from_override)
-            .ok_or_else(|| "--config-dir requires a path".to_owned()),
-        Some(argument) if argument == "--help" || argument == "-h" => {
-            println!("Usage: horyzond [--config-dir PATH]");
-            std::process::exit(0);
+fn run_headless_loop(
+    configuration: &mut ConfigManager,
+    runtime: &mut LayoutRuntime,
+    core: &mut CoreState,
+    logger: &mut SessionLogger,
+) {
+    let bounds = Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds");
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        match configuration.reload_if_changed() {
+            ReloadOutcome::Unchanged => {}
+            ReloadOutcome::Rejected { diagnostic } => {
+                let _ = logger.record(LogLevel::Warn, "reload", &diagnostic);
+            }
+            ReloadOutcome::Applied { generation } => match runtime.synchronize(configuration) {
+                Ok(LayoutRuntimeUpdate::Applied { providers, .. }) => {
+                    runtime.reapply_active(core, bounds);
+                    let _ = logger.record(
+                        LogLevel::Info,
+                        "reload",
+                        &format!(
+                            "applied generation {generation}: {} provider(s) updated, {} retained",
+                            providers.applied.len(),
+                            providers.retained.len()
+                        ),
+                    );
+                }
+                Ok(LayoutRuntimeUpdate::Unchanged) => {}
+                Err(error) => {
+                    let _ = logger.record(LogLevel::Error, "reload", &error.to_string());
+                }
+            },
         }
-        Some(argument) => Err(format!("unknown argument: {}", argument.to_string_lossy())),
     }
+}
+
+struct Options {
+    config: ConfigPath,
+    once: bool,
+}
+
+fn parse_options() -> Result<Options, String> {
+    let mut config = None;
+    let mut once = false;
+    let mut arguments = std::env::args_os().skip(1);
+    while let Some(argument) = arguments.next() {
+        if argument == "--config-dir" {
+            config = Some(ConfigPath::from_override(
+                arguments
+                    .next()
+                    .ok_or_else(|| "--config-dir requires a path".to_owned())?,
+            ));
+        } else if argument == "--once" {
+            once = true;
+        } else if argument == "--help" || argument == "-h" {
+            println!("Usage: horyzond [--config-dir PATH] [--once]");
+            std::process::exit(0);
+        } else {
+            return Err(format!("unknown argument: {}", argument.to_string_lossy()));
+        }
+    }
+    Ok(Options {
+        config: config
+            .map_or_else(ConfigPath::default_for_current_user, Ok)
+            .map_err(|error| error.to_string())?,
+        once,
+    })
 }
 
 fn exit_with_error(message: &str) -> ! {
