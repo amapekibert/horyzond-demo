@@ -2,7 +2,7 @@
 
 Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `feat(p5): add bounded hook dispatch`.
+Last completed step: `feat(p5): add horyctl config status`.
 
 ## Resume next
 

@@ -8,7 +8,13 @@ fn main() {
     let Some(command) = arguments.next() else {
         usage();
     };
-    if command != "config" || arguments.next().as_deref() != Some(std::ffi::OsStr::new("check")) {
+    let subcommand = arguments.next();
+    if command != "config"
+        || !matches!(
+            subcommand.as_deref(),
+            Some(value) if value == "check" || value == "status"
+        )
+    {
         usage();
     }
     let mut config = None;
@@ -28,14 +34,18 @@ fn main() {
         .unwrap_or_else(|error| fail(&error.to_string()));
     match manager.load_initial() {
         ReloadOutcome::Applied { generation } => {
-            println!("configuration is valid (generation {generation})");
+            if subcommand.as_deref() == Some(std::ffi::OsStr::new("status")) {
+                println!("configuration generation {generation} is active");
+            } else {
+                println!("configuration is valid (generation {generation})");
+            }
         }
         ReloadOutcome::Rejected { diagnostic } => fail(&diagnostic),
         ReloadOutcome::Unchanged => unreachable!("initial load evaluates configuration"),
     }
 }
 fn usage() -> ! {
-    eprintln!("Usage: horyctl config check [--config-dir PATH]");
+    eprintln!("Usage: horyctl config <check|status> [--config-dir PATH]");
     std::process::exit(2)
 }
 fn fail(message: &str) -> ! {
