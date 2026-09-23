@@ -9,7 +9,8 @@ use wm_config::ConfigManager;
 use wm_core::CoreState;
 use wm_input::{InputCommand, InputOutcome, InputState};
 use wm_layout::{LayoutId, LayoutInteraction, LayoutProviders, ProviderReload};
-use wm_rules::{Match as RuleMatch, Rule, RuleAction, RuleEngine};
+pub use wm_rules::RuleAction;
+use wm_rules::{Match as RuleMatch, Rule, RuleEngine};
 use wm_types::{Rect, WindowId, WindowMetadata};
 
 /// The result of synchronizing one accepted configuration generation.
@@ -34,6 +35,13 @@ pub struct ProcessLaunch {
 pub enum RuntimeCommand {
     Launch(ProcessLaunch),
     Opaque(InputCommand),
+}
+
+/// The committed effect of dispatching one configured action.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActionDispatch {
+    PendingSpawn,
+    LayoutInteraction,
 }
 
 /// Configuration-to-layout bridge applied only at a caller-selected safe boundary.
@@ -129,6 +137,41 @@ impl LayoutRuntime {
         let layout = core.active_workspace().layout().clone();
         let provider = self.providers.provider(&layout);
         core.interact_layout(provider.as_ref(), interaction, bounds);
+    }
+    /// Commits one configured action without shell interpretation.
+    ///
+    /// `spawn` records a pending launch using its first argument as the
+    /// executable. Every other non-empty action remains opaque and is routed
+    /// to the active layout provider with a data-only arguments payload.
+    /// This operation does not evaluate rules, preventing recursive
+    /// metadata-trigger loops.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty action or invalid pending spawn request.
+    pub fn dispatch_action(
+        &mut self,
+        core: &mut CoreState,
+        name: &str,
+        arguments: &[String],
+        bounds: Rect,
+    ) -> Result<ActionDispatch, ActionDispatchError> {
+        if name == "spawn" {
+            let (executable, arguments) = arguments
+                .split_first()
+                .ok_or(ActionDispatchError::MissingSpawnExecutable)?;
+            self.begin_pending_spawn(ProcessLaunch {
+                executable: executable.clone(),
+                arguments: arguments.to_vec(),
+            })
+            .map_err(ActionDispatchError::PendingSpawn)?;
+            return Ok(ActionDispatch::PendingSpawn);
+        }
+        let interaction =
+            LayoutInteraction::new(name, serde_json::json!({ "arguments": arguments }))
+                .map_err(ActionDispatchError::Interaction)?;
+        self.interact(core, &interaction, bounds);
+        Ok(ActionDispatch::LayoutInteraction)
     }
     /// Handles one normalized configured input press.
     pub fn press(&mut self, chord: &str) -> InputOutcome {
@@ -248,6 +291,26 @@ impl fmt::Display for PendingSpawnError {
 }
 impl std::error::Error for PendingSpawnError {}
 
+/// Failures while committing a configured action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionDispatchError {
+    Interaction(wm_layout::LayoutInteractionError),
+    MissingSpawnExecutable,
+    PendingSpawn(PendingSpawnError),
+}
+impl fmt::Display for ActionDispatchError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Interaction(error) => error.fmt(formatter),
+            Self::MissingSpawnExecutable => {
+                formatter.write_str("spawn action requires an executable argument")
+            }
+            Self::PendingSpawn(error) => error.fmt(formatter),
+        }
+    }
+}
+impl std::error::Error for ActionDispatchError {}
+
 fn active_layout_id(configuration: &ConfigManager) -> Result<LayoutId, LayoutRuntimeError> {
     let name = configuration
         .default_layout()
@@ -302,12 +365,13 @@ impl std::error::Error for LayoutRuntimeError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{LayoutRuntime, LayoutRuntimeUpdate, ProcessLaunch, RuntimeCommand};
+    use super::{
+        ActionDispatch, LayoutRuntime, LayoutRuntimeUpdate, ProcessLaunch, RuntimeCommand,
+    };
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
     use wm_config::{ConfigManager, ConfigPath, install_defaults};
     use wm_core::CoreState;
-    use wm_layout::LayoutInteraction;
     use wm_script::ScriptLimits;
     use wm_types::{Point, Rect, WindowId};
 
@@ -342,7 +406,7 @@ mod tests {
 
         fs::write(
             root.join("layouts/custom.lua"),
-            "layout = { id = 'custom', api_version = 1 }\nfunction calculate() return { [1] = { x = 5, y = 6, width = 7, height = 8 } } end\nfunction interact(windows, bounds, camera, state, event) return { [1] = { x = 5, y = 6, width = 7, height = 8 }, state = { action = event.action } } end\n",
+            "layout = { id = 'custom', api_version = 1 }\nfunction calculate() return { [1] = { x = 5, y = 6, width = 7, height = 8 } } end\nfunction interact(windows, bounds, camera, state, event) return { [1] = { x = 5, y = 6, width = 7, height = 8 }, state = { action = event.action, payload = event.payload } } end\n",
         )
         .expect("provider");
         fs::write(
@@ -370,15 +434,35 @@ mod tests {
                 .pick(Point::new(6.0, 7.0).expect("point")),
             Some(WindowId::new(1))
         );
-        runtime.interact(
-            &mut core,
-            &LayoutInteraction::new("advance", serde_json::Value::Null).expect("interaction"),
-            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+        assert_eq!(
+            runtime.dispatch_action(
+                &mut core,
+                "advance",
+                &["one".to_owned()],
+                Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+            ),
+            Ok(ActionDispatch::LayoutInteraction)
+        );
+        assert_eq!(
+            runtime.dispatch_action(
+                &mut core,
+                "spawn",
+                &["test-program".to_owned(), "--safe".to_owned()],
+                Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+            ),
+            Ok(ActionDispatch::PendingSpawn)
+        );
+        assert_eq!(
+            runtime.pending_spawn(),
+            Some(&ProcessLaunch {
+                executable: "test-program".to_owned(),
+                arguments: vec!["--safe".to_owned()],
+            })
         );
         assert_eq!(
             core.active_layout_state()
                 .provider_state(core.active_workspace().layout()),
-            Some(&serde_json::json!({ "action": "advance" }))
+            Some(&serde_json::json!({ "action": "advance", "payload": { "arguments": ["one"] } }))
         );
         fs::remove_dir_all(root).expect("cleanup");
     }

@@ -142,12 +142,8 @@ fn run_headless_loop(
                     match event {
                         BackendEvent::WindowMetadataChanged(window, metadata) => {
                             let actions = runtime.update_window_metadata(window, &metadata);
-                            if !actions.is_empty() {
-                                let _ = logger.record(
-                                    LogLevel::Info,
-                                    "rules",
-                                    &format!("emitted {} action(s) for {window}", actions.len()),
-                                );
+                            for action in &actions {
+                                dispatch_rule_action(runtime, core, window, action, bounds, logger);
                             }
                         }
                         BackendEvent::WindowMapped(window) => {
@@ -208,6 +204,38 @@ fn run_headless_loop(
                     let _ = logger.record(LogLevel::Error, "reload", &error.to_string());
                 }
             },
+        }
+    }
+}
+
+fn dispatch_rule_action(
+    runtime: &mut LayoutRuntime,
+    core: &mut CoreState,
+    window: wm_types::WindowId,
+    action: &wm_runtime::RuleAction,
+    bounds: Rect,
+    logger: &mut SessionLogger,
+) {
+    match runtime.dispatch_action(core, &action.name, &action.arguments, bounds) {
+        Ok(dispatched) => {
+            let _ = logger.record(
+                LogLevel::Info,
+                "rules",
+                &format!(
+                    "dispatched {dispatched:?} action {} for {window}",
+                    action.name
+                ),
+            );
+        }
+        Err(error) => {
+            let _ = logger.record(
+                LogLevel::Warn,
+                "rules",
+                &format!(
+                    "could not dispatch action {} for {window}: {error}",
+                    action.name
+                ),
+            );
         }
     }
 }
