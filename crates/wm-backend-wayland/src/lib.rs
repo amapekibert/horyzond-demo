@@ -21,6 +21,8 @@ pub const fn nested_runtime_available() -> bool {
 /// Returns an error when this binary was built without the `nested` feature.
 pub fn require_nested_runtime() -> Result<(), BackendError> {
     if nested_runtime_available() {
+        #[cfg(feature = "nested")]
+        let _ = smithay_boundary::smithay_version_is_linked();
         Ok(())
     } else {
         Err(BackendError::new(
