@@ -73,6 +73,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Poll configuration and reapply accepted provider generations in the headless runtime.
 - [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
 - [x] Let a provider return validated world geometry and paint order.
+- [x] Allow callers to select any configured opaque provider through the neutral runtime.
 - [ ] Extend the provider protocol with provider-defined interaction and state callbacks.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 

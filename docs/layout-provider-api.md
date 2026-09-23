@@ -14,6 +14,8 @@ layouts = {
 
 The table key is the provider's opaque ID. It must match the `layout.id` value in the Lua file.
 
+The configured `default_layout` selects the initial provider. Future mode and IPC code can select any configured opaque ID through the neutral runtime; the WM does not attach behavior to an ID or its filename.
+
 ```lua
 layout = {
   id = "my_layout",

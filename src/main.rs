@@ -68,7 +68,7 @@ fn main() {
         LogLevel::Info,
         "layout",
         &format!(
-            "selected {} profile with {} provider",
+            "selected {} layout with {} provider",
             runtime.default_layout(),
             "active Lua or recovery"
         ),

@@ -73,14 +73,22 @@ impl LayoutRuntime {
 
     /// Applies the configured default layout to the active workspace.
     pub fn apply_default(&self, core: &mut CoreState, bounds: Rect) {
-        let provider = self.providers.provider(&self.default_layout);
+        self.apply(core, &self.default_layout, bounds);
+    }
+
+    /// Applies an opaque configured layout selection to the active workspace.
+    ///
+    /// Selection policy belongs to callers such as modes or IPC. An unknown or
+    /// unavailable ID receives the generic recovery provider.
+    pub fn apply(&self, core: &mut CoreState, layout: &LayoutId, bounds: Rect) {
+        let provider = self.providers.provider(layout);
         core.apply_layout(provider.as_ref(), bounds);
     }
 
     /// Reapplies the active workspace layout after a provider reload.
     pub fn reapply_active(&self, core: &mut CoreState, bounds: Rect) {
-        let provider = self.providers.provider(core.active_workspace().layout());
-        core.apply_layout(provider.as_ref(), bounds);
+        let layout = core.active_workspace().layout().clone();
+        self.apply(core, &layout, bounds);
     }
 
     /// Returns the current default opaque layout ID.
@@ -167,6 +175,43 @@ mod tests {
             Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
         );
         assert_eq!(runtime.default_layout().as_str(), "custom");
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(Point::new(6.0, 7.0).expect("point")),
+            Some(WindowId::new(1))
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn caller_can_select_an_arbitrary_configured_provider() {
+        let root = root();
+        let path = ConfigPath::from_override(&root);
+        install_defaults(&path).expect("defaults");
+        fs::write(
+            root.join("layouts/custom.lua"),
+            "layout = { id = 'custom', api_version = 1 }\nfunction calculate() return { [1] = { x = 5, y = 6, width = 7, height = 8 } } end\n",
+        )
+        .expect("provider");
+        fs::write(
+            root.join("config.lua"),
+            "settings = { default_layout = 'spatial' }\nmodes = {}\nlayouts = { spatial = 'layouts/spatial.lua', custom = 'layouts/custom.lua' }\n",
+        )
+        .expect("config");
+        let mut configuration =
+            ConfigManager::new(&path, ScriptLimits::default()).expect("manager");
+        let _ = configuration.load_initial();
+        let runtime = LayoutRuntime::from_config(&configuration).expect("runtime");
+        let mut core = CoreState::default();
+        core.apply_event(wm_backend::BackendEvent::WindowMapped(WindowId::new(1)))
+            .expect("map");
+        runtime.apply(
+            &mut core,
+            &wm_layout::LayoutId::new("custom").expect("ID"),
+            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+        );
+        assert_eq!(core.active_workspace().layout().as_str(), "custom");
         assert_eq!(
             core.active_workspace()
                 .scene
