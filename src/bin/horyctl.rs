@@ -9,20 +9,41 @@ fn main() {
     let Some(command) = arguments.next() else {
         usage();
     };
-    let subcommand = (command == "config" || command == "layout")
+    let subcommand = (command == "config" || command == "layout" || command == "camera")
         .then(|| arguments.next())
         .flatten();
     if !((command == "config"
         && matches!(subcommand.as_deref(), Some(value) if value == "check" || value == "status"))
         || ((command == "status" || command == "windows" || command == "workspaces")
             && subcommand.is_none())
-        || (command == "layout" && subcommand.as_deref() == Some(std::ffi::OsStr::new("select"))))
+        || (command == "layout" && subcommand.as_deref() == Some(std::ffi::OsStr::new("select")))
+        || (command == "camera" && subcommand.as_deref() == Some(std::ffi::OsStr::new("set"))))
     {
         usage();
     }
     let params = if command == "layout" {
         let layout = arguments.next().unwrap_or_else(|| usage());
         serde_json::json!({ "layout": layout.to_string_lossy() })
+    } else if command == "camera" {
+        let x = number(
+            &arguments
+                .next()
+                .unwrap_or_else(|| usage())
+                .to_string_lossy(),
+        );
+        let y = number(
+            &arguments
+                .next()
+                .unwrap_or_else(|| usage())
+                .to_string_lossy(),
+        );
+        let zoom = number(
+            &arguments
+                .next()
+                .unwrap_or_else(|| usage())
+                .to_string_lossy(),
+        );
+        serde_json::json!({ "x": x, "y": y, "zoom": zoom })
     } else {
         serde_json::Value::Null
     };
@@ -53,6 +74,10 @@ fn main() {
         online(&path, "layout.select", params);
         return;
     }
+    if command == "camera" {
+        online(&path, "camera.set", params);
+        return;
+    }
     let mut manager = ConfigManager::new(&path, ScriptLimits::default())
         .unwrap_or_else(|error| fail(&error.to_string()));
     match manager.load_initial() {
@@ -69,7 +94,7 @@ fn main() {
 }
 fn usage() -> ! {
     eprintln!(
-        "Usage: horyctl <status|windows|workspaces|layout select ID|config <check|status>> [--config-dir PATH]"
+        "Usage: horyctl <status|windows|workspaces|layout select ID|camera set X Y ZOOM|config <check|status>> [--config-dir PATH]"
     );
     std::process::exit(2)
 }
@@ -96,5 +121,16 @@ fn online(path: &ConfigPath, method: &str, params: serde_json::Value) {
         (Some(result), None) => println!("{result}"),
         (_, Some(error)) => fail(&error),
         _ => fail("invalid IPC response"),
+    }
+}
+
+fn number(value: &str) -> f64 {
+    let number = value
+        .parse::<f64>()
+        .unwrap_or_else(|_| fail("expected a finite number"));
+    if number.is_finite() {
+        number
+    } else {
+        fail("expected a finite number")
     }
 }

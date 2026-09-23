@@ -13,7 +13,7 @@ use wm_ipc::{IpcServer, Request, Response};
 use wm_render::{RecordingRenderer, Renderer};
 use wm_runtime::{LayoutRuntime, LayoutRuntimeUpdate};
 use wm_script::ScriptLimits;
-use wm_types::{OutputInfo, Rect};
+use wm_types::{OutputInfo, Point, Rect};
 
 fn main() {
     let options = match parse_options() {
@@ -198,6 +198,27 @@ fn handle_ipc(
                 Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds"),
             );
             Ok(serde_json::json!({ "layout": layout.as_str() }))
+        })(),
+        "camera.set" => (|| {
+            let x = request
+                .params
+                .get("x")
+                .and_then(serde_json::Value::as_f64)
+                .ok_or_else(|| "camera.set requires a finite numeric x parameter".to_owned())?;
+            let y = request
+                .params
+                .get("y")
+                .and_then(serde_json::Value::as_f64)
+                .ok_or_else(|| "camera.set requires a finite numeric y parameter".to_owned())?;
+            let zoom = request
+                .params
+                .get("zoom")
+                .and_then(serde_json::Value::as_f64)
+                .ok_or_else(|| "camera.set requires a finite numeric zoom parameter".to_owned())?;
+            let position = Point::new(x, y).map_err(|error| error.to_string())?;
+            core.set_active_camera(position, zoom)
+                .map_err(|error| error.to_string())?;
+            Ok(serde_json::json!({ "x": x, "y": y, "zoom": zoom }))
         })(),
         _ => Err(format!("unknown IPC method: {}", request.method)),
     };

@@ -7,7 +7,7 @@ use std::fmt;
 use wm_backend::BackendEvent;
 use wm_layout::{LayoutEngine, LayoutId, LayoutInput, LayoutInteraction, LayoutState};
 use wm_scene::{Camera2D, Scene};
-use wm_types::{OutputId, OutputInfo, Rect, WindowId};
+use wm_types::{OutputId, OutputInfo, Point, Rect, WindowId};
 
 /// A workspace identifier stable during one Horyzond session.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -114,6 +114,13 @@ impl CoreState {
             return Err(CoreError::UnknownWorkspace(workspace));
         }
         self.active_workspace = workspace;
+        Ok(())
+    }
+    /// Replaces the active workspace camera after validating its world origin
+    /// and positive finite scale.
+    pub fn set_active_camera(&mut self, position: Point, zoom: f64) -> Result<(), CoreError> {
+        self.active_workspace_mut().camera =
+            Camera2D::new(position, zoom).map_err(CoreError::Camera)?;
         Ok(())
     }
     pub fn apply_event(&mut self, event: BackendEvent) -> Result<(), CoreError> {
@@ -284,6 +291,7 @@ pub enum CoreError {
     NotMapped(WindowId),
     NotInActiveWorkspace(WindowId),
     UnknownWorkspace(WorkspaceId),
+    Camera(wm_scene::SceneError),
 }
 impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -294,6 +302,7 @@ impl fmt::Display for CoreError {
                 write!(f, "{id} is not present in the active workspace")
             }
             Self::UnknownWorkspace(id) => write!(f, "workspace {} does not exist", id.0),
+            Self::Camera(error) => error.fmt(f),
         }
     }
 }
