@@ -24,6 +24,28 @@ pub struct Response {
     pub result: Option<serde_json::Value>,
     pub error: Option<String>,
 }
+impl Response {
+    /// Creates a success response preserving a request's correlation ID.
+    #[must_use]
+    pub fn success(request: &Request, result: serde_json::Value) -> Self {
+        Self {
+            version: VERSION,
+            id: request.id,
+            result: Some(result),
+            error: None,
+        }
+    }
+    /// Creates an error response preserving a request's correlation ID.
+    #[must_use]
+    pub fn failure(request: &Request, error: impl Into<String>) -> Self {
+        Self {
+            version: VERSION,
+            id: request.id,
+            result: None,
+            error: Some(error.into()),
+        }
+    }
+}
 /// Protocol framing and validation errors.
 #[derive(Debug)]
 pub enum IpcError {
