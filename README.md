@@ -6,7 +6,7 @@ The project is licensed under [WTFPL](LICENSE). The repositories in `examples/` 
 
 ## Current status
 
-P0 through P3 are implemented and P4 is in progress. The repository has a modular headless foundation, bounded Lua configuration reload, deterministic workspace lifecycle state, camera projection, scene snapshots, picking, damage tracking, and native recovery layouts with restricted Lua providers. This is still not yet a usable compositor.
+P0 through P4 are implemented. The repository has a modular headless foundation, bounded Lua configuration reload, deterministic workspace lifecycle state, camera projection, scene snapshots, picking, damage tracking, and independent restricted Lua layout providers. This is still not yet a usable compositor.
 
 ## Development roadmap
 
@@ -16,7 +16,7 @@ P0 through P3 are implemented and P4 is in progress. The repository has a modula
 | P1 | First-run configuration bootstrap, session and crash diagnostics | Complete |
 | P2 | Lua configuration, `source()`, validation, live reload | Complete |
 | P3 | Headless core, workspaces, camera, scene | Complete |
-| P4 | Provider-defined layout runtime and recovery | In progress |
+| P4 | Provider-defined layout runtime and recovery | Complete |
 | P5 | Modes, rules, hooks, IPC, `horyctl` | Planned |
 | P6 | Nested Wayland session and OpenGL renderer | Planned |
 | P7 | DRM/KMS, libinput, standalone Wayland | Planned |
@@ -76,6 +76,8 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Allow callers to select any configured opaque provider through the neutral runtime.
 - [x] Preserve JSON-compatible provider state without storing Lua closures.
 - [x] Route opaque provider-defined interactions without hardcoded layout actions.
+- [x] Preserve provider histories and opaque layout selections per workspace.
+- [ ] Build P5 modal input, rules, hooks, and `horyctl` IPC.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow

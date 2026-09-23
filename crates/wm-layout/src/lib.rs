@@ -806,6 +806,20 @@ mod tests {
     }
 
     #[test]
+    fn unknown_provider_uses_generic_recovery_without_named_layouts() {
+        let providers = LayoutProviders::default();
+        let requested = id("not-registered");
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        let provider = providers.provider(&requested);
+        assert_eq!(provider.id(), &requested);
+        assert_eq!(
+            provider.calculate(&input(&ids, &existing)).geometry.len(),
+            1
+        );
+    }
+
+    #[test]
     fn invalid_provider_is_excluded_without_affecting_other_providers() {
         let root = std::env::temp_dir().join(format!(
             "horyzond-layout-test-{}",

@@ -390,6 +390,76 @@ mod tests {
         );
     }
     #[test]
+    fn switching_providers_preserves_each_provider_state_history() {
+        let mut core = CoreState::default();
+        let window = WindowId::new(1);
+        core.apply_event(BackendEvent::WindowMapped(window))
+            .expect("map");
+        let first = StatefulLayout {
+            id: LayoutId::new("first-provider").expect("ID"),
+        };
+        let second = StatefulLayout {
+            id: LayoutId::new("second-provider").expect("ID"),
+        };
+        let bounds = Rect::new(0., 0., 100., 100.).expect("bounds");
+        core.apply_layout(&first, bounds);
+        core.apply_layout(&second, bounds);
+        core.apply_layout(&first, bounds);
+        let state = core.active_layout_state();
+        assert_eq!(state.active_layout(), first.id());
+        assert_eq!(
+            state
+                .provider_state(first.id())
+                .and_then(serde_json::Value::as_u64),
+            Some(2)
+        );
+        assert_eq!(
+            state
+                .provider_state(second.id())
+                .and_then(serde_json::Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(Point::new(1., 1.).expect("point")),
+            Some(window)
+        );
+    }
+    #[test]
+    fn workspace_selection_keeps_layout_state_independent() {
+        let mut core = CoreState::default();
+        core.apply_event(BackendEvent::WindowMapped(WindowId::new(1)))
+            .expect("map");
+        let first = StatefulLayout {
+            id: LayoutId::new("first-workspace-provider").expect("ID"),
+        };
+        let second = StatefulLayout {
+            id: LayoutId::new("second-workspace-provider").expect("ID"),
+        };
+        let bounds = Rect::new(0., 0., 100., 100.).expect("bounds");
+        core.apply_layout(&first, bounds);
+        let other = core.create_workspace();
+        core.switch_workspace(other).expect("workspace");
+        core.apply_layout(&second, bounds);
+        assert_eq!(core.active_workspace().layout(), second.id());
+        assert_eq!(
+            core.active_layout_state()
+                .provider_state(second.id())
+                .and_then(serde_json::Value::as_u64),
+            Some(1)
+        );
+        core.switch_workspace(WorkspaceId::new(1))
+            .expect("workspace");
+        assert_eq!(core.active_workspace().layout(), first.id());
+        assert_eq!(
+            core.active_layout_state()
+                .provider_state(first.id())
+                .and_then(serde_json::Value::as_u64),
+            Some(1)
+        );
+    }
+    #[test]
     fn state_restores_only_mapped_windows() {
         let mut source = CoreState::default();
         let window = WindowId::new(1);

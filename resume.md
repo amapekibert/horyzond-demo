@@ -1,12 +1,12 @@
 # Horyzond resume point
 
-Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**. P4 is actively in progress.
+Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `feat(p4): route provider interactions`.
+Last completed step: `test(p4): cover provider lifecycle isolation`.
 
 ## Resume next
 
-Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `LayoutId` values and calls the neutral `LayoutEngine` contract. `wm-layout` discovers arbitrary Lua provider IDs from configuration, validates declarations before registry activation, bounds callbacks, retains individual last-good providers on reload failure, and falls back to generic recovery placement without recognizing any shipped layout name. A calculation or interaction returns validated geometry, an optional complete back-to-front paint order, and JSON-compatible provider state. `wm-runtime` synchronizes accepted configuration generations at a caller-selected safe boundary, selects opaque IDs, and routes opaque provider interactions. The complete API is in `docs/layout-provider-api.md`. The bundled Lua files are examples only. Next, prove cross-provider state history and per-workspace selection through P4 exit-gate tests.
+Start **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complete: the core stores opaque `LayoutId` values and calls a neutral `LayoutEngine` contract; Lua providers are independent, bounded, reloadable, and versioned. They return validated geometry, optional complete back-to-front paint order, JSON-compatible state, and optional opaque interaction results. Configuration and the runtime select arbitrary IDs without knowing layout names. The API is documented in `docs/layout-provider-api.md`; bundled Lua files are examples only. Begin P5 with a neutral command model and configurable modal state machine, then add rules, hooks, versioned IPC, and `horyctl`.
 
 ## Phase checklist
 
@@ -16,8 +16,8 @@ Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `Layo
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
-| P4 | In progress | Provider output supports geometry, paint order, JSON-compatible state, and opaque interactions. The remaining exit-gate work is to test cross-provider history and independent workspace selection, then review recovery and reload isolation against all provider contract cases. |
-| P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
+| P4 | Complete | Arbitrary providers have bounded calculation and interaction callbacks, validated output, isolated last-good reload handling, generic recovery, data-only state migration, cross-provider history, and independent per-workspace selection. |
+| P5 | In progress | Define neutral modal commands and configured transitions, then rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
 | P8 | Not started | Layer shell, desktop protocols, clipboard, drag-and-drop, lock policy, and safe pending-spawn association. |

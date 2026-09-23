@@ -238,4 +238,48 @@ mod tests {
         );
         fs::remove_dir_all(root).expect("cleanup");
     }
+
+    #[test]
+    fn provider_reload_migrates_data_only_state_for_the_same_opaque_id() {
+        let root = root();
+        let path = ConfigPath::from_override(&root);
+        install_defaults(&path).expect("defaults");
+        let provider = root.join("layouts/custom.lua");
+        fs::write(
+            &provider,
+            "layout = { id = 'custom', api_version = 1 }\nfunction calculate() return { [1] = { x = 0, y = 0, width = 10, height = 10 }, state = { count = 1 } } end\n",
+        )
+        .expect("provider");
+        fs::write(
+            root.join("config.lua"),
+            "settings = { default_layout = 'custom' }\nmodes = {}\nlayouts = { custom = 'layouts/custom.lua' }\n",
+        )
+        .expect("config");
+        let mut configuration =
+            ConfigManager::new(&path, ScriptLimits::default()).expect("manager");
+        let _ = configuration.load_initial();
+        let mut runtime = LayoutRuntime::from_config(&configuration).expect("runtime");
+        let mut core = CoreState::default();
+        core.apply_event(wm_backend::BackendEvent::WindowMapped(WindowId::new(1)))
+            .expect("map");
+        let bounds = Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds");
+        runtime.apply_default(&mut core, bounds);
+        fs::write(
+            &provider,
+            "layout = { id = 'custom', api_version = 1 }\nfunction calculate(windows, bounds, camera, state) return { [1] = { x = 0, y = 0, width = 10, height = 10 }, state = { count = state.count + 10 } } end\n",
+        )
+        .expect("updated provider");
+        let _ = configuration.reload();
+        assert!(matches!(
+            runtime.synchronize(&configuration),
+            Ok(LayoutRuntimeUpdate::Applied { .. })
+        ));
+        runtime.reapply_active(&mut core, bounds);
+        assert_eq!(
+            core.active_layout_state()
+                .provider_state(core.active_workspace().layout()),
+            Some(&serde_json::json!({ "count": 11 }))
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
 }
