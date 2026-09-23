@@ -43,6 +43,7 @@ pub struct LayoutRuntime {
     providers: LayoutProviders,
     input: InputState,
     rules: RuleEngine,
+    pending_spawn: Option<ProcessLaunch>,
 }
 impl LayoutRuntime {
     /// Creates a bridge from an already accepted configuration candidate.
@@ -68,6 +69,7 @@ impl LayoutRuntime {
             providers: LayoutProviders::from_layout_paths(paths),
             input,
             rules: active_rules(configuration)?,
+            pending_spawn: None,
         })
     }
 
@@ -176,7 +178,53 @@ impl LayoutRuntime {
     pub fn default_layout(&self) -> &LayoutId {
         &self.default_layout
     }
+    /// Records one user-requested pending spawn without invoking a shell or
+    /// launching a process. P8 owns eventual process execution and window
+    /// association.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty executable or more than 64 arguments.
+    pub fn begin_pending_spawn(&mut self, launch: ProcessLaunch) -> Result<(), PendingSpawnError> {
+        if launch.executable.trim().is_empty() {
+            return Err(PendingSpawnError::EmptyExecutable);
+        }
+        if launch.arguments.len() > 64 {
+            return Err(PendingSpawnError::TooManyArguments);
+        }
+        self.pending_spawn = Some(launch);
+        Ok(())
+    }
+    /// Cancels and returns the outstanding pending spawn, if any.
+    pub fn cancel_pending_spawn(&mut self) -> Option<ProcessLaunch> {
+        self.pending_spawn.take()
+    }
+    /// Returns the pending spawn request without allowing process execution.
+    #[must_use]
+    pub fn pending_spawn(&self) -> Option<&ProcessLaunch> {
+        self.pending_spawn.as_ref()
+    }
 }
+
+/// Validation failures for a data-only pending spawn request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PendingSpawnError {
+    EmptyExecutable,
+    TooManyArguments,
+}
+impl fmt::Display for PendingSpawnError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyExecutable => {
+                formatter.write_str("pending spawn executable must not be empty")
+            }
+            Self::TooManyArguments => {
+                formatter.write_str("pending spawn accepts at most 64 arguments")
+            }
+        }
+    }
+}
+impl std::error::Error for PendingSpawnError {}
 
 fn active_layout_id(configuration: &ConfigManager) -> Result<LayoutId, LayoutRuntimeError> {
     let name = configuration

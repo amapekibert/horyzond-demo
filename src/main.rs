@@ -149,6 +149,7 @@ fn run_headless_loop(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_ipc(
     request: &Request,
     configuration: &mut ConfigManager,
@@ -161,6 +162,10 @@ fn handle_ipc(
             "layout": runtime.default_layout().as_str(),
             "mode": runtime.mode(),
             "active_layout": core.active_workspace().layout().as_str(),
+            "pending_spawn": runtime.pending_spawn().map(|spawn| serde_json::json!({
+                "executable": spawn.executable,
+                "arguments": spawn.arguments,
+            })),
         })),
         "config.status" => Ok(serde_json::json!({
             "generation": configuration.generation(),
@@ -240,6 +245,36 @@ fn handle_ipc(
                 }))
             }
         })(),
+        "spawn.pending" => (|| {
+            let executable = request
+                .params
+                .get("executable")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "spawn.pending requires a string executable parameter".to_owned())?;
+            let arguments = request
+                .params
+                .get("arguments")
+                .and_then(serde_json::Value::as_array)
+                .ok_or_else(|| "spawn.pending requires an arguments array".to_owned())?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| "spawn.pending arguments must be strings".to_owned())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            runtime
+                .begin_pending_spawn(wm_runtime::ProcessLaunch {
+                    executable: executable.to_owned(),
+                    arguments,
+                })
+                .map_err(|error| error.to_string())?;
+            Ok(serde_json::json!({ "pending": true }))
+        })(),
+        "spawn.cancel" => Ok(serde_json::json!({
+            "cancelled": runtime.cancel_pending_spawn().is_some(),
+        })),
         _ => Err(format!("unknown IPC method: {}", request.method)),
     };
     match result {

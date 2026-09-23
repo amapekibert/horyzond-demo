@@ -4,23 +4,28 @@ use wm_config::{ConfigManager, ConfigPath, ReloadOutcome};
 use wm_ipc::{Request, VERSION, request};
 use wm_script::ScriptLimits;
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let mut arguments = std::env::args_os().skip(1);
     let Some(command) = arguments.next() else {
         usage();
     };
-    let subcommand = (command == "config" || command == "layout" || command == "camera")
-        .then(|| arguments.next())
-        .flatten();
+    let subcommand =
+        (command == "config" || command == "layout" || command == "camera" || command == "spawn")
+            .then(|| arguments.next())
+            .flatten();
     if !((command == "config"
         && matches!(subcommand.as_deref(), Some(value) if value == "check" || value == "status" || value == "reload"))
         || ((command == "status" || command == "windows" || command == "workspaces")
             && subcommand.is_none())
         || (command == "layout" && subcommand.as_deref() == Some(std::ffi::OsStr::new("select")))
-        || (command == "camera" && subcommand.as_deref() == Some(std::ffi::OsStr::new("set"))))
+        || (command == "camera" && subcommand.as_deref() == Some(std::ffi::OsStr::new("set")))
+        || (command == "spawn"
+            && matches!(subcommand.as_deref(), Some(value) if value == "pending" || value == "cancel")))
     {
         usage();
     }
+    let mut spawn = None;
     let params = if command == "layout" {
         let layout = arguments.next().unwrap_or_else(|| usage());
         serde_json::json!({ "layout": layout.to_string_lossy() })
@@ -44,6 +49,9 @@ fn main() {
                 .to_string_lossy(),
         );
         serde_json::json!({ "x": x, "y": y, "zoom": zoom })
+    } else if command == "spawn" && subcommand.as_deref() == Some(std::ffi::OsStr::new("pending")) {
+        spawn = Some((arguments.next().unwrap_or_else(|| usage()), Vec::new()));
+        serde_json::Value::Null
     } else {
         serde_json::Value::Null
     };
@@ -53,6 +61,8 @@ fn main() {
             config = Some(ConfigPath::from_override(
                 arguments.next().unwrap_or_else(|| usage()),
             ));
+        } else if let Some((_, spawn_arguments)) = &mut spawn {
+            spawn_arguments.push(argument);
         } else {
             usage();
         }
@@ -78,6 +88,23 @@ fn main() {
         online(&path, "camera.set", params);
         return;
     }
+    if command == "spawn" {
+        if subcommand.as_deref() == Some(std::ffi::OsStr::new("cancel")) {
+            online(&path, "spawn.cancel", serde_json::Value::Null);
+        } else if let Some((executable, arguments)) = spawn {
+            online(
+                &path,
+                "spawn.pending",
+                serde_json::json!({
+                    "executable": executable.to_string_lossy(),
+                    "arguments": arguments.iter().map(|argument| argument.to_string_lossy()).collect::<Vec<_>>(),
+                }),
+            );
+        } else {
+            unreachable!("validated pending spawn command");
+        }
+        return;
+    }
     if command == "config" && subcommand.as_deref() == Some(std::ffi::OsStr::new("reload")) {
         online(&path, "config.reload", serde_json::Value::Null);
         return;
@@ -98,7 +125,7 @@ fn main() {
 }
 fn usage() -> ! {
     eprintln!(
-        "Usage: horyctl <status|windows|workspaces|layout select ID|camera set X Y ZOOM|config <check|reload|status>> [--config-dir PATH]"
+        "Usage: horyctl <status|windows|workspaces|layout select ID|camera set X Y ZOOM|spawn <pending EXECUTABLE [ARG...]|cancel>|config <check|reload|status>> [--config-dir PATH]"
     );
     std::process::exit(2)
 }
