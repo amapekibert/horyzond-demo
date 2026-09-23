@@ -9,14 +9,23 @@ fn main() {
     let Some(command) = arguments.next() else {
         usage();
     };
-    let subcommand = (command == "config").then(|| arguments.next()).flatten();
+    let subcommand = (command == "config" || command == "layout")
+        .then(|| arguments.next())
+        .flatten();
     if !((command == "config"
         && matches!(subcommand.as_deref(), Some(value) if value == "check" || value == "status"))
         || ((command == "status" || command == "windows" || command == "workspaces")
-            && subcommand.is_none()))
+            && subcommand.is_none())
+        || (command == "layout" && subcommand.as_deref() == Some(std::ffi::OsStr::new("select"))))
     {
         usage();
     }
+    let params = if command == "layout" {
+        let layout = arguments.next().unwrap_or_else(|| usage());
+        serde_json::json!({ "layout": layout.to_string_lossy() })
+    } else {
+        serde_json::Value::Null
+    };
     let mut config = None;
     while let Some(argument) = arguments.next() {
         if argument == "--config-dir" {
@@ -37,7 +46,11 @@ fn main() {
             Some("workspaces") => "workspaces.list",
             _ => unreachable!("validated online command"),
         };
-        online(&path, method);
+        online(&path, method, serde_json::Value::Null);
+        return;
+    }
+    if command == "layout" {
+        online(&path, "layout.select", params);
         return;
     }
     let mut manager = ConfigManager::new(&path, ScriptLimits::default())
@@ -56,7 +69,7 @@ fn main() {
 }
 fn usage() -> ! {
     eprintln!(
-        "Usage: horyctl <status|windows|workspaces|config <check|status>> [--config-dir PATH]"
+        "Usage: horyctl <status|windows|workspaces|layout select ID|config <check|status>> [--config-dir PATH]"
     );
     std::process::exit(2)
 }
@@ -65,7 +78,7 @@ fn fail(message: &str) -> ! {
     std::process::exit(1)
 }
 
-fn online(path: &ConfigPath, method: &str) {
+fn online(path: &ConfigPath, method: &str, params: serde_json::Value) {
     let socket = path
         .ipc_socket_path()
         .unwrap_or_else(|error| fail(&error.to_string()));
@@ -75,7 +88,7 @@ fn online(path: &ConfigPath, method: &str) {
             version: VERSION,
             id: 1,
             method: method.to_owned(),
-            params: serde_json::Value::Null,
+            params,
         },
     )
     .unwrap_or_else(|error| fail(&error.to_string()));

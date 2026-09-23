@@ -151,9 +151,9 @@ fn run_headless_loop(
 
 fn handle_ipc(
     request: &Request,
-    configuration: &ConfigManager,
-    runtime: &LayoutRuntime,
-    core: &CoreState,
+    configuration: &mut ConfigManager,
+    runtime: &mut LayoutRuntime,
+    core: &mut CoreState,
 ) -> Response {
     let result = match request.method.as_str() {
         "status" => Ok(serde_json::json!({
@@ -182,6 +182,23 @@ fn handle_ipc(
                 },
             })).collect::<Vec<_>>(),
         })),
+        "layout.select" => (|| {
+            let layout = request
+                .params
+                .get("layout")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "layout.select requires a string layout parameter".to_owned())?;
+            let layout = wm_layout::LayoutId::new(layout).map_err(|error| error.to_string())?;
+            if configuration.layout_path(layout.as_str()).is_none() {
+                return Err(format!("unknown configured layout: {layout}"));
+            }
+            runtime.apply(
+                core,
+                &layout,
+                Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds"),
+            );
+            Ok(serde_json::json!({ "layout": layout.as_str() }))
+        })(),
         _ => Err(format!("unknown IPC method: {}", request.method)),
     };
     match result {
