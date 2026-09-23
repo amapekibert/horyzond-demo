@@ -136,6 +136,10 @@ impl CoreState {
                     return Err(CoreError::AlreadyMapped(window));
                 }
             }
+            BackendEvent::WindowMetadataChanged(window, _) if !self.windows.contains(&window) => {
+                return Err(CoreError::NotMapped(window));
+            }
+            BackendEvent::WindowMetadataChanged(_, _) => {}
             BackendEvent::WindowUnmapped(window) => {
                 if !self.windows.remove(&window) {
                     return Err(CoreError::NotMapped(window));

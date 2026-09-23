@@ -4,7 +4,7 @@
 //! only deterministic headless components; Wayland and graphics adapters land
 //! in later milestones.
 
-use wm_backend::WindowSystem;
+use wm_backend::{BackendEvent, WindowSystem};
 use wm_backend_headless::HeadlessBackend;
 use wm_config::{ConfigManager, ConfigPath, ReloadOutcome, install_defaults};
 use wm_core::CoreState;
@@ -97,6 +97,7 @@ fn main() {
     );
     if !options.once {
         run_headless_loop(
+            &mut backend,
             &mut configuration,
             &mut runtime,
             &mut core,
@@ -110,6 +111,7 @@ fn main() {
 }
 
 fn run_headless_loop(
+    backend: &mut HeadlessBackend,
     configuration: &mut ConfigManager,
     runtime: &mut LayoutRuntime,
     core: &mut CoreState,
@@ -118,6 +120,37 @@ fn run_headless_loop(
 ) {
     let bounds = Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds");
     loop {
+        match backend.poll_events() {
+            Ok(events) => {
+                for event in events {
+                    if let Err(error) = core.apply_event(event.clone()) {
+                        let _ = logger.record(LogLevel::Warn, "backend", &error.to_string());
+                        continue;
+                    }
+                    match event {
+                        BackendEvent::WindowMetadataChanged(window, metadata) => {
+                            let actions = runtime.update_window_metadata(window, &metadata);
+                            if !actions.is_empty() {
+                                let _ = logger.record(
+                                    LogLevel::Info,
+                                    "rules",
+                                    &format!("emitted {} action(s) for {window}", actions.len()),
+                                );
+                            }
+                        }
+                        BackendEvent::WindowUnmapped(window) => {
+                            runtime.forget_window_metadata(window);
+                        }
+                        BackendEvent::OutputAdded(_)
+                        | BackendEvent::OutputRemoved(_)
+                        | BackendEvent::WindowMapped(_) => {}
+                    }
+                }
+            }
+            Err(error) => {
+                let _ = logger.record(LogLevel::Warn, "backend", &error.to_string());
+            }
+        }
         if let Err(error) = ipc.poll(|request| handle_ipc(&request, configuration, runtime, core)) {
             let _ = logger.record(LogLevel::Warn, "ipc", &error.to_string());
         }

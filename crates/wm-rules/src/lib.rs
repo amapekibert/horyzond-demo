@@ -1,11 +1,6 @@
 //! Data-only ordered window rules with explicit non-recursive evaluation.
 
-/// Metadata available to rules without querying compositor state.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct WindowMetadata {
-    pub app_id: String,
-    pub title: String,
-}
+pub use wm_types::WindowMetadata;
 /// A bounded literal match predicate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Match {

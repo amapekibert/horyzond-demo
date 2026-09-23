@@ -32,6 +32,14 @@ impl fmt::Display for WindowId {
     }
 }
 
+/// Normalized metadata supplied by a window-system adapter for rule matching.
+/// It deliberately excludes protocol-native handles and unbounded payloads.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WindowMetadata {
+    pub app_id: String,
+    pub title: String,
+}
+
 /// A stable identifier for an output during one compositor session.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OutputId(String);

@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use wm_backend::{BackendError, BackendEvent, WindowSystem};
-use wm_types::{Capabilities, OutputInfo, Rect, WindowId};
+use wm_types::{Capabilities, OutputInfo, Rect, WindowId, WindowMetadata};
 
 /// A simple, deterministic backend for core and contract tests.
 #[derive(Debug)]
@@ -52,6 +52,25 @@ impl HeadlessBackend {
             return Err(BackendError::new(format!("{window} is not mapped")));
         }
         self.events.push_back(BackendEvent::WindowUnmapped(window));
+        Ok(())
+    }
+
+    /// Injects a metadata change for an existing window.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error before initialization or for an unmapped window.
+    pub fn update_window_metadata(
+        &mut self,
+        window: WindowId,
+        metadata: WindowMetadata,
+    ) -> Result<(), BackendError> {
+        self.require_initialized()?;
+        if !self.mapped_windows.contains(&window) {
+            return Err(BackendError::new(format!("{window} is not mapped")));
+        }
+        self.events
+            .push_back(BackendEvent::WindowMetadataChanged(window, metadata));
         Ok(())
     }
 
@@ -106,7 +125,7 @@ impl WindowSystem for HeadlessBackend {
 #[cfg(test)]
 mod tests {
     use wm_backend::{BackendEvent, WindowSystem};
-    use wm_types::{OutputInfo, Rect, WindowId};
+    use wm_types::{OutputInfo, Rect, WindowId, WindowMetadata};
 
     use super::HeadlessBackend;
 
@@ -120,6 +139,22 @@ mod tests {
         ));
         let window = WindowId::new(1);
         backend.map_window(window).expect("mapping succeeds");
+        backend
+            .update_window_metadata(
+                window,
+                WindowMetadata {
+                    app_id: "terminal".to_owned(),
+                    title: "shell".to_owned(),
+                },
+            )
+            .expect("metadata update succeeds");
+        assert!(matches!(
+            backend.poll_events().expect("poll succeeds").as_slice(),
+            [
+                BackendEvent::WindowMapped(_),
+                BackendEvent::WindowMetadataChanged(_, _)
+            ]
+        ));
         backend
             .request_window_geometry(
                 window,

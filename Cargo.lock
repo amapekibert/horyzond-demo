@@ -425,6 +425,9 @@ dependencies = [
 [[package]]
 name = "wm-rules"
 version = "0.26.0"
+dependencies = [
+ "wm-types",
+]
 
 [[package]]
 name = "wm-runtime"

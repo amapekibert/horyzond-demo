@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use wm_types::{Capabilities, OutputId, OutputInfo, Rect, WindowId};
+use wm_types::{Capabilities, OutputId, OutputInfo, Rect, WindowId, WindowMetadata};
 
 /// Events emitted by a window-system adapter in coordinator order.
 #[derive(Clone, Debug, PartialEq)]
@@ -16,6 +16,8 @@ pub enum BackendEvent {
     OutputRemoved(OutputId),
     /// A client window became manageable.
     WindowMapped(WindowId),
+    /// Metadata changed for an already managed window.
+    WindowMetadataChanged(WindowId, WindowMetadata),
     /// A client window disappeared.
     WindowUnmapped(WindowId),
 }

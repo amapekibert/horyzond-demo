@@ -3,13 +3,14 @@
 //! The coordinator is the only layer that knows both configuration and core
 //! state. `wm-core` remains independent of Lua files and provider registries.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use wm_config::ConfigManager;
 use wm_core::CoreState;
 use wm_input::{InputCommand, InputOutcome, InputState};
 use wm_layout::{LayoutId, LayoutInteraction, LayoutProviders, ProviderReload};
-use wm_rules::{Match as RuleMatch, Rule, RuleAction, RuleEngine, WindowMetadata};
-use wm_types::Rect;
+use wm_rules::{Match as RuleMatch, Rule, RuleAction, RuleEngine};
+use wm_types::{Rect, WindowId, WindowMetadata};
 
 /// The result of synchronizing one accepted configuration generation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,6 +45,7 @@ pub struct LayoutRuntime {
     input: InputState,
     rules: RuleEngine,
     pending_spawn: Option<ProcessLaunch>,
+    window_metadata: BTreeMap<WindowId, WindowMetadata>,
 }
 impl LayoutRuntime {
     /// Creates a bridge from an already accepted configuration candidate.
@@ -70,6 +72,7 @@ impl LayoutRuntime {
             input,
             rules: active_rules(configuration)?,
             pending_spawn: None,
+            window_metadata: BTreeMap::new(),
         })
     }
 
@@ -165,6 +168,25 @@ impl LayoutRuntime {
     #[must_use]
     pub fn evaluate_rules(&self, metadata: &WindowMetadata) -> Vec<RuleAction> {
         self.rules.evaluate(metadata).actions
+    }
+    /// Records a committed metadata update and evaluates rules once only when
+    /// the metadata changed. Callers dispatch the returned opaque actions after
+    /// this function returns, preventing recursive rule-trigger loops.
+    #[must_use]
+    pub fn update_window_metadata(
+        &mut self,
+        window: WindowId,
+        metadata: &WindowMetadata,
+    ) -> Vec<RuleAction> {
+        if self.window_metadata.get(&window) == Some(metadata) {
+            return Vec::new();
+        }
+        self.window_metadata.insert(window, metadata.clone());
+        self.evaluate_rules(metadata)
+    }
+    /// Removes lifecycle metadata when a window is unmapped.
+    pub fn forget_window_metadata(&mut self, window: WindowId) {
+        self.window_metadata.remove(&window);
     }
 
     /// Reapplies the active workspace layout after a provider reload.
@@ -455,17 +477,23 @@ mod tests {
         let mut configuration =
             ConfigManager::new(&path, ScriptLimits::default()).expect("configuration");
         let _ = configuration.load_initial();
-        let runtime = LayoutRuntime::from_config(&configuration).expect("runtime");
+        let mut runtime = LayoutRuntime::from_config(&configuration).expect("runtime");
+        let metadata = wm_types::WindowMetadata {
+            app_id: "terminal".to_owned(),
+            title: String::new(),
+        };
         assert_eq!(
             runtime
-                .evaluate_rules(&wm_rules::WindowMetadata {
-                    app_id: "terminal".to_owned(),
-                    title: String::new(),
-                })
+                .update_window_metadata(WindowId::new(7), &metadata)
                 .first()
                 .expect("matched action")
                 .name,
             "select_layout"
+        );
+        assert!(
+            runtime
+                .update_window_metadata(WindowId::new(7), &metadata)
+                .is_empty()
         );
         fs::remove_dir_all(root).expect("cleanup");
     }
