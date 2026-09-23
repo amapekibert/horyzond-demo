@@ -192,6 +192,23 @@ mod tests {
         backend
             .acknowledge_configure(transaction)
             .expect("matching transaction acknowledges");
+        let first = backend
+            .request_window_geometry(
+                window,
+                Rect::new(0.0, 0.0, 201.0, 100.0).expect("valid geometry"),
+            )
+            .expect("first replacement request succeeds");
+        let latest = backend
+            .request_window_geometry(
+                window,
+                Rect::new(0.0, 0.0, 202.0, 100.0).expect("valid geometry"),
+            )
+            .expect("latest replacement request succeeds");
+        assert!(latest.serial > first.serial);
+        assert!(backend.acknowledge_configure(first).is_err());
+        backend
+            .acknowledge_configure(latest)
+            .expect("latest transaction acknowledges");
         backend.unmap_window(window).expect("unmapping succeeds");
         assert!(
             backend
