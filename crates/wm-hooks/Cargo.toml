@@ -1,0 +1,11 @@
+[package]
+name = "wm-hooks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Bounded non-recursive committed-event hooks for Horyzond."
+[lints]
+workspace = true

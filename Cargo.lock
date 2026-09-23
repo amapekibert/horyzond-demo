@@ -384,6 +384,10 @@ name = "wm-diagnostics"
 version = "0.26.0"
 
 [[package]]
+name = "wm-hooks"
+version = "0.26.0"
+
+[[package]]
 name = "wm-input"
 version = "0.26.0"
 dependencies = [

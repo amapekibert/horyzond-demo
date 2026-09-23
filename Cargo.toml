@@ -15,6 +15,7 @@ members = [
     "crates/wm-input",
     "crates/wm-rules",
     "crates/wm-ipc",
+    "crates/wm-hooks",
 ]
 resolver = "3"
 
