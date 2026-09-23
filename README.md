@@ -52,6 +52,7 @@ cargo fmt --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -- --once
+cargo run --bin horyctl -- config check
 ```
 
 The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--config-dir` is supplied), starts session diagnostics, and runs a headless configuration polling loop. Use `--once` for bootstrap-only verification. It does not yet create a visible compositor session.

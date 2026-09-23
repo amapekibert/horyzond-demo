@@ -2,7 +2,7 @@
 
 Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `feat(p5): add bounded IPC framing`.
+Last completed step: `feat(p5): add horyctl config check`.
 
 ## Resume next
 
