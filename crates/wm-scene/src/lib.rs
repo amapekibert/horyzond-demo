@@ -137,6 +137,29 @@ impl Scene {
         self.generation += 1;
         true
     }
+    /// Replaces paint order when it lists every mapped scene window exactly once.
+    ///
+    /// Returns `false` without mutation for incomplete, duplicate, or unknown IDs.
+    pub fn set_order(&mut self, order: &[WindowId]) -> bool {
+        if order.len() != self.order.len()
+            || order.iter().any(|id| !self.windows.contains_key(id))
+            || order
+                .iter()
+                .enumerate()
+                .any(|(index, id)| order[..index].contains(id))
+        {
+            return false;
+        }
+        if self.order == order {
+            return true;
+        }
+        self.order = order.to_vec();
+        for bounds in self.windows.values().copied() {
+            self.damage.add(bounds);
+        }
+        self.generation += 1;
+        true
+    }
     /// Returns the topmost world-space window containing a point.
     #[must_use]
     pub fn pick(&self, world: Point) -> Option<WindowId> {
@@ -266,6 +289,30 @@ mod tests {
             Some(WindowId::new(2))
         );
         assert!(scene.raise_window(WindowId::new(1)));
+        assert_eq!(
+            scene.pick(Point::new(6.0, 6.0).expect("point")),
+            Some(WindowId::new(1))
+        );
+    }
+
+    #[test]
+    fn set_order_replaces_only_a_complete_unique_order() {
+        let mut scene = Scene::default();
+        scene.set_window(
+            WindowId::new(1),
+            Rect::new(0.0, 0.0, 20.0, 20.0).expect("rect"),
+        );
+        scene.set_window(
+            WindowId::new(2),
+            Rect::new(5.0, 5.0, 10.0, 10.0).expect("rect"),
+        );
+        assert!(scene.set_order(&[WindowId::new(2), WindowId::new(1)]));
+        assert_eq!(
+            scene.pick(Point::new(6.0, 6.0).expect("point")),
+            Some(WindowId::new(1))
+        );
+        assert!(!scene.set_order(&[WindowId::new(1), WindowId::new(1)]));
+        assert!(!scene.set_order(&[WindowId::new(1), WindowId::new(3)]));
         assert_eq!(
             scene.pick(Point::new(6.0, 6.0).expect("point")),
             Some(WindowId::new(1))

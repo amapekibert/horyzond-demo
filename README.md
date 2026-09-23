@@ -16,7 +16,7 @@ P0 through P3 are implemented and P4 is in progress. The repository has a modula
 | P1 | First-run configuration bootstrap, session and crash diagnostics | Complete |
 | P2 | Lua configuration, `source()`, validation, live reload | Complete |
 | P3 | Headless core, workspaces, camera, scene | Complete |
-| P4 | SPATIAL, SCROLLING, TILING, STACKING layout providers | In progress |
+| P4 | Provider-defined layout runtime and recovery | In progress |
 | P5 | Modes, rules, hooks, IPC, `horyctl` | Planned |
 | P6 | Nested Wayland session and OpenGL renderer | Planned |
 | P7 | DRM/KMS, libinput, standalone Wayland | Planned |
@@ -72,7 +72,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Synchronize accepted configuration generations to providers without coupling core to configuration.
 - [x] Poll configuration and reapply accepted provider generations in the headless runtime.
 - [x] Serialize versioned, data-only profile state and migrate compatible geometry through provider reload.
-- [x] Keep explicit scene paint order independent from focus.
+- [x] Let a provider return validated world geometry and paint order.
 - [ ] Extend the provider protocol with provider-defined interaction and state callbacks.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 

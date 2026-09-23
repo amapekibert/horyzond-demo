@@ -142,12 +142,28 @@ pub struct LayoutInput<'a> {
     pub existing: &'a BTreeMap<WindowId, Rect>,
     pub focused: Option<WindowId>,
 }
-/// An external layout provider that only returns world-space geometry.
+/// Validated data returned by a layout provider.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayoutOutput {
+    pub geometry: BTreeMap<WindowId, Rect>,
+    pub order: Vec<WindowId>,
+}
+impl LayoutOutput {
+    /// Creates output with the provider's geometry and stable input order.
+    #[must_use]
+    pub fn with_input_order(geometry: BTreeMap<WindowId, Rect>, input: &LayoutInput<'_>) -> Self {
+        Self {
+            geometry,
+            order: input.windows.to_vec(),
+        }
+    }
+}
+/// An external layout provider that returns world-space geometry and paint order.
 pub trait LayoutEngine {
     /// Returns the opaque ID selected by configuration.
     fn id(&self) -> &LayoutId;
-    /// Calculates one rectangle for every supplied window.
-    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect>;
+    /// Calculates one rectangle and one paint-order entry for every supplied window.
+    fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput;
 }
 
 /// Generic last-resort placement for any unavailable or failing provider.
@@ -169,8 +185,8 @@ impl LayoutEngine for RecoveryLayout {
     fn id(&self) -> &LayoutId {
         &self.id
     }
-    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
-        input
+    fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput {
+        let geometry = input
             .windows
             .iter()
             .enumerate()
@@ -187,7 +203,8 @@ impl LayoutEngine for RecoveryLayout {
                 });
                 (*window, geometry)
             })
-            .collect()
+            .collect();
+        LayoutOutput::with_input_order(geometry, input)
     }
 }
 
@@ -236,7 +253,7 @@ impl LuaLayout {
         validate_layout_contract(&lua, &self.id)
     }
 
-    fn calculate_lua(&self, input: &LayoutInput<'_>) -> Result<BTreeMap<WindowId, Rect>, String> {
+    fn calculate_lua(&self, input: &LayoutInput<'_>) -> Result<LayoutOutput, String> {
         let lua = restricted_lua(self.limits)?;
         lua.load(&self.source)
             .exec()
@@ -283,14 +300,18 @@ impl LuaLayout {
             };
             output.insert(*window_id, read_rect(&table)?);
         }
-        Ok(output)
+        let order = read_order(&result, input)?;
+        Ok(LayoutOutput {
+            geometry: output,
+            order,
+        })
     }
 }
 impl LayoutEngine for LuaLayout {
     fn id(&self) -> &LayoutId {
         &self.id
     }
-    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
+    fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput {
         self.calculate_lua(input)
             .unwrap_or_else(|_| RecoveryLayout::new(self.id.clone()).calculate(input))
     }
@@ -426,6 +447,28 @@ fn read_rect(table: &Table) -> Result<Rect, String> {
     .map_err(|error| error.to_string())
 }
 
+fn read_order(result: &Table, input: &LayoutInput<'_>) -> Result<Vec<WindowId>, String> {
+    let value: Value = result.get("order").map_err(|error| error.to_string())?;
+    let order = match value {
+        Value::Nil => return Ok(input.windows.to_vec()),
+        Value::Table(order) => order,
+        _ => return Err("paint order must be an array".to_owned()),
+    };
+    let mut ordered = Vec::with_capacity(input.windows.len());
+    for index in 1..=input.windows.len() {
+        let raw: u64 = order.get(index).map_err(|error| error.to_string())?;
+        let id = WindowId::new(raw);
+        if !input.windows.contains(&id) || ordered.contains(&id) {
+            return Err(format!("invalid paint-order window ID {id}"));
+        }
+        ordered.push(id);
+    }
+    if order.raw_len() != input.windows.len() {
+        return Err("paint order must list every window exactly once".to_owned());
+    }
+    Ok(ordered)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,6 +495,7 @@ mod tests {
         assert_eq!(
             RecoveryLayout::new(custom)
                 .calculate(&input(&ids, &existing))
+                .geometry
                 .len(),
             1
         );
@@ -468,7 +512,10 @@ mod tests {
             ),
             limits: ScriptLimits::default(),
         };
-        assert!((layout.calculate(&input(&ids, &existing))[&ids[0]].x - 7.).abs() < f64::EPSILON);
+        assert!(
+            (layout.calculate(&input(&ids, &existing)).geometry[&ids[0]].x - 7.).abs()
+                < f64::EPSILON
+        );
     }
     #[test]
     fn invalid_lua_geometry_uses_generic_recovery() {
@@ -483,8 +530,40 @@ mod tests {
             limits: ScriptLimits::default(),
         };
         assert!(
-            (layout.calculate(&input(&ids, &existing))[&ids[0]].width - 70.).abs() < f64::EPSILON
+            (layout.calculate(&input(&ids, &existing)).geometry[&ids[0]].width - 70.).abs()
+                < f64::EPSILON
         );
+    }
+    #[test]
+    fn lua_provider_can_set_complete_paint_order() {
+        let ids = [WindowId::new(1), WindowId::new(2)];
+        let existing = BTreeMap::new();
+        let layout = LuaLayout {
+            id: id("ordered"),
+            source: source(
+                "ordered",
+                "function calculate() return { [1] = { x = 0, y = 0, width = 10, height = 10 }, [2] = { x = 1, y = 1, width = 10, height = 10 }, order = { 2, 1 } } end",
+            ),
+            limits: ScriptLimits::default(),
+        };
+        assert_eq!(
+            layout.calculate(&input(&ids, &existing)).order,
+            vec![WindowId::new(2), WindowId::new(1)]
+        );
+    }
+    #[test]
+    fn invalid_paint_order_uses_generic_recovery() {
+        let ids = [WindowId::new(1), WindowId::new(2)];
+        let existing = BTreeMap::new();
+        let layout = LuaLayout {
+            id: id("broken-order"),
+            source: source(
+                "broken-order",
+                "function calculate() return { [1] = { x = 0, y = 0, width = 10, height = 10 }, [2] = { x = 1, y = 1, width = 10, height = 10 }, order = { 2, 2 } } end",
+            ),
+            limits: ScriptLimits::default(),
+        };
+        assert_eq!(layout.calculate(&input(&ids, &existing)).order, ids);
     }
     #[test]
     fn provider_map_discovers_an_unlisted_custom_layout() {
@@ -514,7 +593,8 @@ mod tests {
         assert!(
             (providers
                 .provider(&layout_id)
-                .calculate(&input(&ids, &existing))[&ids[0]]
+                .calculate(&input(&ids, &existing))
+                .geometry[&ids[0]]
                 .x
                 - 1.)
                 .abs()
@@ -611,7 +691,8 @@ mod tests {
         assert!(
             (providers
                 .provider(&id("retained"))
-                .calculate(&input(&ids, &existing))[&ids[0]]
+                .calculate(&input(&ids, &existing))
+                .geometry[&ids[0]]
                 .x
                 - 1.0)
                 .abs()
@@ -620,7 +701,8 @@ mod tests {
         assert!(
             (providers
                 .provider(&id("replaced"))
-                .calculate(&input(&ids, &existing))[&ids[0]]
+                .calculate(&input(&ids, &existing))
+                .geometry[&ids[0]]
                 .x
                 - 9.0)
                 .abs()
@@ -640,7 +722,7 @@ mod tests {
                 instruction_limit: 1_000,
             },
         };
-        assert_eq!(layout.calculate(&input(&ids, &existing)).len(), 1);
+        assert_eq!(layout.calculate(&input(&ids, &existing)).geometry.len(), 1);
     }
     #[test]
     fn layout_state_round_trips_without_provider_code() {

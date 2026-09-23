@@ -180,10 +180,11 @@ impl CoreState {
             existing: &existing,
             focused: workspace.focused,
         });
-        for (window, geometry) in &result {
+        for (window, geometry) in &result.geometry {
             workspace.scene.set_window(*window, *geometry);
         }
-        workspace.layout_geometry.insert(layout, result);
+        let _ = workspace.scene.set_order(&result.order);
+        workspace.layout_geometry.insert(layout, result.geometry);
     }
     #[must_use]
     pub fn active_layout_state(&self) -> LayoutState {
@@ -230,8 +231,29 @@ impl std::error::Error for CoreError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wm_layout::RecoveryLayout;
+    use wm_layout::{LayoutOutput, RecoveryLayout};
     use wm_types::Point;
+
+    struct OrderedLayout {
+        id: LayoutId,
+    }
+    impl LayoutEngine for OrderedLayout {
+        fn id(&self) -> &LayoutId {
+            &self.id
+        }
+
+        fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput {
+            let bounds = Rect::new(0., 0., 20., 20.).expect("rect");
+            LayoutOutput {
+                geometry: input
+                    .windows
+                    .iter()
+                    .map(|window| (*window, bounds))
+                    .collect(),
+                order: input.windows.iter().rev().copied().collect(),
+            }
+        }
+    }
     #[test]
     fn arbitrary_external_layout_id_drives_core() {
         let mut core = CoreState::default();
@@ -246,6 +268,24 @@ mod tests {
                 .scene
                 .pick(Point::new(1., 1.).expect("point"))
                 .is_some()
+        );
+    }
+    #[test]
+    fn external_layout_order_drives_scene_painting() {
+        let mut core = CoreState::default();
+        core.apply_event(BackendEvent::WindowMapped(WindowId::new(1)))
+            .expect("map");
+        core.apply_event(BackendEvent::WindowMapped(WindowId::new(2)))
+            .expect("map");
+        let layout = OrderedLayout {
+            id: LayoutId::new("ordered-plugin").expect("ID"),
+        };
+        core.apply_layout(&layout, Rect::new(0., 0., 100., 100.).expect("bounds"));
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(Point::new(1., 1.).expect("point")),
+            Some(WindowId::new(1))
         );
     }
     #[test]

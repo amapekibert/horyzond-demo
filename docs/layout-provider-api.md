@@ -42,6 +42,8 @@ end
 
 The return value must contain one rectangle for every supplied window, keyed by its numeric `window.id`. A rectangle requires finite `x`, `y`, `width`, and `height`; widths and heights must be positive. Extra entries are ignored. Missing or invalid entries reject that calculation and use generic recovery placement for that request.
 
+The result can also set `order` to an array containing every supplied window ID exactly once, from back to front. When `order` is absent, the stable `windows` input order is retained. An invalid order rejects the whole calculation and uses generic recovery placement.
+
 Provider source is evaluated in a restricted Lua environment with table, string, math, and UTF-8 libraries. Memory and instruction limits apply to loading and every calculation. Operating-system access, file access, module loading, process spawning, and compositor globals are unavailable.
 
 Configuration reload validates every provider declaration before it becomes active. A failed edit retains that provider's most recent valid implementation when available. Removing an ID from `layouts` removes it intentionally. Providers must not rely on Rust code recognizing their names.
