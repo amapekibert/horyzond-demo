@@ -223,6 +223,19 @@ impl LuaLayout {
             limits,
         })
     }
+
+    /// Validates the provider declaration before it can enter an active registry.
+    ///
+    /// This evaluates only the top-level declaration. `calculate()` remains
+    /// isolated and bounded for each layout request.
+    fn validate(&self) -> Result<(), String> {
+        let lua = restricted_lua(self.limits)?;
+        lua.load(&self.source)
+            .exec()
+            .map_err(|error| error.to_string())?;
+        validate_layout_contract(&lua, &self.id)
+    }
+
     fn calculate_lua(&self, input: &LayoutInput<'_>) -> Result<BTreeMap<WindowId, Rect>, String> {
         let lua = restricted_lua(self.limits)?;
         lua.load(&self.source)
@@ -296,9 +309,9 @@ impl LayoutProviders {
             .iter()
             .filter_map(|(name, path)| {
                 let id = LayoutId::new(name.clone()).ok()?;
-                LuaLayout::from_file(id.clone(), path)
-                    .ok()
-                    .map(|provider| (id, provider))
+                let provider = LuaLayout::from_file(id.clone(), path).ok()?;
+                provider.validate().ok()?;
+                Some((id, provider))
             })
             .collect();
         Self { providers }
@@ -478,6 +491,43 @@ mod tests {
                 .abs()
                 < f64::EPSILON
         );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn invalid_provider_is_excluded_without_affecting_other_providers() {
+        let root = std::env::temp_dir().join(format!(
+            "horyzond-layout-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("root");
+        let valid = root.join("valid.lua");
+        let invalid = root.join("invalid.lua");
+        fs::write(
+            &valid,
+            source(
+                "valid",
+                "function calculate() return { [1] = { x = 1, y = 2, width = 3, height = 4 } } end",
+            ),
+        )
+        .expect("valid provider");
+        fs::write(
+            &invalid,
+            source(
+                "different-id",
+                "function calculate() return { [1] = { x = 1, y = 2, width = 3, height = 4 } } end",
+            ),
+        )
+        .expect("invalid provider");
+        let providers = LayoutProviders::from_layout_paths(&BTreeMap::from([
+            ("valid".to_owned(), valid),
+            ("invalid".to_owned(), invalid),
+        ]));
+        assert!(providers.is_configured(&id("valid")));
+        assert!(!providers.is_configured(&id("invalid")));
         fs::remove_dir_all(root).expect("cleanup");
     }
     #[test]

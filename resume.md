@@ -2,11 +2,11 @@
 
 Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**. P4 is actively in progress.
 
-Last completed step: `refactor(p4): make layouts provider-defined`.
+Last completed step: `feat(p4): validate provider registry`.
 
 ## Resume next
 
-Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `LayoutId` values and calls the neutral `LayoutEngine` contract. `wm-layout` discovers arbitrary Lua provider IDs from configuration, enforces bounded versioned contracts, and falls back to generic recovery placement without recognizing any shipped layout name. The bundled Lua files are examples only. Next, update the detailed plan and remaining documentation to remove profile-specific implementation assumptions, then add provider-defined state extensions and runtime reload wiring.
+Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `LayoutId` values and calls the neutral `LayoutEngine` contract. `wm-layout` discovers arbitrary Lua provider IDs from configuration, validates declarations before registry activation, enforces bounded versioned callbacks, and falls back to generic recovery placement without recognizing any shipped layout name. The bundled Lua files are examples only. Next, add provider-defined state extensions and runtime reload wiring.
 
 ## Phase checklist
 
@@ -16,7 +16,7 @@ Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `Layo
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
-| P4 | In progress | The core stores opaque layout IDs and speaks only the neutral layout contract. Configuration discovers any named Lua provider, while the runtime validates its version, bounds it, and uses generic recovery placement if it fails. The shipped Lua files are defaults/examples, not WM-defined layout types. Provider-defined state extensions and runtime reload integration remain. |
+| P4 | In progress | The core stores opaque layout IDs and speaks only the neutral layout contract. Configuration discovers any named Lua provider, while the runtime validates declarations and callbacks, bounds execution, and uses generic recovery placement if it fails. The shipped Lua files are defaults/examples, not WM-defined layout types. Provider-defined state extensions and runtime reload integration remain. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
