@@ -6,7 +6,7 @@
 use std::fmt;
 use wm_config::ConfigManager;
 use wm_core::CoreState;
-use wm_input::{InputOutcome, InputState};
+use wm_input::{InputCommand, InputOutcome, InputState};
 use wm_layout::{LayoutId, LayoutInteraction, LayoutProviders, ProviderReload};
 use wm_types::Rect;
 
@@ -18,6 +18,20 @@ pub enum LayoutRuntimeUpdate {
         generation: u64,
         providers: ProviderReload,
     },
+}
+
+/// A launch request represented without shell interpretation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessLaunch {
+    pub executable: String,
+    pub arguments: Vec<String>,
+}
+
+/// A command emitted after a configured input press.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RuntimeCommand {
+    Launch(ProcessLaunch),
+    Opaque(InputCommand),
 }
 
 /// Configuration-to-layout bridge applied only at a caller-selected safe boundary.
@@ -111,6 +125,27 @@ impl LayoutRuntime {
     pub fn press(&mut self, chord: &str) -> InputOutcome {
         self.input.press(chord)
     }
+    /// Dispatches a configured press into a typed runtime request.
+    ///
+    /// `spawn` requires a non-empty executable as its first configured
+    /// argument. Other action names remain opaque for later P5 subsystems.
+    pub fn dispatch_press(&mut self, chord: &str) -> Option<RuntimeCommand> {
+        let command = self.press(chord).command?;
+        if command.name == "switch_mode" {
+            return None;
+        }
+        if command.name != "spawn" {
+            return Some(RuntimeCommand::Opaque(command));
+        }
+        let (executable, arguments) = command.arguments.split_first()?;
+        if executable.trim().is_empty() {
+            return None;
+        }
+        Some(RuntimeCommand::Launch(ProcessLaunch {
+            executable: executable.clone(),
+            arguments: arguments.to_vec(),
+        }))
+    }
     /// Clears and reports a release corresponding to a consumed press.
     pub fn release(&mut self, chord: &str) -> bool {
         self.input.release(chord)
@@ -161,7 +196,7 @@ impl std::error::Error for LayoutRuntimeError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{LayoutRuntime, LayoutRuntimeUpdate};
+    use super::{LayoutRuntime, LayoutRuntimeUpdate, ProcessLaunch, RuntimeCommand};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
     use wm_config::{ConfigManager, ConfigPath, install_defaults};
@@ -191,7 +226,13 @@ mod tests {
         let mut runtime = LayoutRuntime::from_config(&configuration).expect("runtime");
         assert_eq!(runtime.default_layout().as_str(), "spatial");
         assert_eq!(runtime.mode(), "normal");
-        assert!(runtime.press("Super+Enter").consumed);
+        assert_eq!(
+            runtime.dispatch_press("Super+Enter"),
+            Some(RuntimeCommand::Launch(ProcessLaunch {
+                executable: "ghostty".to_owned(),
+                arguments: vec![],
+            }))
+        );
 
         fs::write(
             root.join("layouts/custom.lua"),
