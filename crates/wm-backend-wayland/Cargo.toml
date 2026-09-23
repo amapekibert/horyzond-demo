@@ -1,0 +1,21 @@
+[package]
+name = "wm-backend-wayland"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Feature-gated nested Wayland adapter for Horyzond."
+
+[features]
+default = []
+nested = ["dep:smithay"]
+
+[dependencies]
+wm-backend = { path = "../wm-backend" }
+wm-types = { path = "../wm-types" }
+smithay = { version = "0.7.0", default-features = false, features = ["backend_winit", "renderer_gl", "wayland_frontend"], optional = true }
+
+[lints]
+workspace = true

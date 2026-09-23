@@ -4,6 +4,7 @@ members = [
     "crates/wm-types",
     "crates/wm-backend",
     "crates/wm-backend-headless",
+    "crates/wm-backend-wayland",
     "crates/wm-config",
     "crates/wm-diagnostics",
     "crates/wm-render",
