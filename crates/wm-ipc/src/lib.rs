@@ -2,6 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
 
 /// Current IPC protocol revision.
 pub const VERSION: u32 = 1;
@@ -86,6 +94,8 @@ pub enum IpcError {
     Json(serde_json::Error),
     Version(u32),
     EmptyMethod,
+    Io(io::Error),
+    UnsupportedTransport,
 }
 impl fmt::Display for IpcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -96,10 +106,17 @@ impl fmt::Display for IpcError {
             Self::Json(e) => e.fmt(f),
             Self::Version(v) => write!(f, "unsupported IPC version {v}"),
             Self::EmptyMethod => f.write_str("IPC method must not be empty"),
+            Self::Io(error) => error.fmt(f),
+            Self::UnsupportedTransport => f.write_str("IPC requires a Unix-domain socket platform"),
         }
     }
 }
 impl std::error::Error for IpcError {}
+impl From<io::Error> for IpcError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
 /// Encodes one request into a four-byte big-endian length-prefixed frame.
 ///
 /// # Errors
@@ -107,7 +124,23 @@ impl std::error::Error for IpcError {}
 /// Returns an error for invalid requests or frames exceeding the size limit.
 pub fn encode(request: &Request) -> Result<Vec<u8>, IpcError> {
     validate(request)?;
-    let body = serde_json::to_vec(request).map_err(IpcError::Json)?;
+    encode_value(request)
+}
+
+/// Encodes a response with the same bounded framing as requests.
+///
+/// # Errors
+///
+/// Returns an error when the response exceeds the frame size limit.
+pub fn encode_response(response: &Response) -> Result<Vec<u8>, IpcError> {
+    if response.version != VERSION {
+        return Err(IpcError::Version(response.version));
+    }
+    encode_value(response)
+}
+
+fn encode_value(value: &impl Serialize) -> Result<Vec<u8>, IpcError> {
+    let body = serde_json::to_vec(value).map_err(IpcError::Json)?;
     if body.len() > MAX_FRAME_BYTES {
         return Err(IpcError::TooLarge);
     }
@@ -123,6 +156,25 @@ pub fn encode(request: &Request) -> Result<Vec<u8>, IpcError> {
 ///
 /// Returns an error for malformed, oversized, unsupported, or invalid frames.
 pub fn decode(frame: &[u8]) -> Result<Request, IpcError> {
+    let request = decode_value(frame)?;
+    validate(&request)?;
+    Ok(request)
+}
+
+/// Decodes one framed response.
+///
+/// # Errors
+///
+/// Returns an error for malformed, oversized, or unsupported frames.
+pub fn decode_response(frame: &[u8]) -> Result<Response, IpcError> {
+    let response: Response = decode_value(frame)?;
+    if response.version != VERSION {
+        return Err(IpcError::Version(response.version));
+    }
+    Ok(response)
+}
+
+fn decode_value<T: for<'de> Deserialize<'de>>(frame: &[u8]) -> Result<T, IpcError> {
     if frame.len() < 4 {
         return Err(IpcError::Truncated);
     }
@@ -134,9 +186,7 @@ pub fn decode(frame: &[u8]) -> Result<Request, IpcError> {
     if frame.len() != length + 4 {
         return Err(IpcError::InvalidLength);
     }
-    let request = serde_json::from_slice(&frame[4..]).map_err(IpcError::Json)?;
-    validate(&request)?;
-    Ok(request)
+    serde_json::from_slice(&frame[4..]).map_err(IpcError::Json)
 }
 fn validate(request: &Request) -> Result<(), IpcError> {
     if request.version != VERSION {
@@ -146,6 +196,146 @@ fn validate(request: &Request) -> Result<(), IpcError> {
     } else {
         Ok(())
     }
+}
+
+/// A same-user Unix-domain IPC listener. The listener is non-blocking; each
+/// accepted stream receives short read and write deadlines so an incomplete
+/// client cannot hold a coordinator loop indefinitely.
+#[derive(Debug)]
+pub struct IpcServer {
+    #[cfg(unix)]
+    listener: UnixListener,
+    path: PathBuf,
+    timeout: Duration,
+}
+impl IpcServer {
+    /// Binds an owner-only IPC socket at `path`.
+    ///
+    /// The parent directory must already be private to the current user. A
+    /// stale socket at the exact requested path is removed before binding.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket cannot be created or secured.
+    pub fn bind(path: impl Into<PathBuf>) -> Result<Self, IpcError> {
+        let path = path.into();
+        #[cfg(unix)]
+        {
+            if path.exists() {
+                std::fs::remove_file(&path)?;
+            }
+            let listener = UnixListener::bind(&path)?;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+            listener.set_nonblocking(true)?;
+            Ok(Self {
+                listener,
+                path,
+                timeout: Duration::from_millis(100),
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            Err(IpcError::UnsupportedTransport)
+        }
+    }
+    /// Returns the owned socket path.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    /// Accepts and handles at most one complete request without blocking.
+    ///
+    /// A would-block accept returns `Ok(false)`. Malformed clients receive a
+    /// protocol error where framing permits it, then are disconnected.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error only for listener-level failures.
+    pub fn poll(&self, handler: impl FnOnce(Request) -> Response) -> Result<bool, IpcError> {
+        #[cfg(unix)]
+        match self.listener.accept() {
+            Ok((mut stream, _)) => {
+                stream.set_read_timeout(Some(self.timeout))?;
+                stream.set_write_timeout(Some(self.timeout))?;
+                let response = match read_request(&mut stream) {
+                    Ok(request) => handler(request),
+                    Err(error) => Response {
+                        version: VERSION,
+                        id: 0,
+                        result: None,
+                        error: Some(error.to_string()),
+                    },
+                };
+                let _ = write_frame(&mut stream, &encode_response(&response)?);
+                Ok(true)
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = handler;
+            Err(IpcError::UnsupportedTransport)
+        }
+    }
+}
+impl Drop for IpcServer {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Sends one bounded request to a same-user Unix-domain server.
+///
+/// # Errors
+///
+/// Returns an error for connection, deadline, framing, or protocol failures.
+pub fn request(path: &Path, request: &Request) -> Result<Response, IpcError> {
+    #[cfg(unix)]
+    {
+        let mut stream = UnixStream::connect(path)?;
+        let timeout = Duration::from_millis(250);
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
+        write_frame(&mut stream, &encode(request)?)?;
+        read_response(&mut stream)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, request);
+        Err(IpcError::UnsupportedTransport)
+    }
+}
+
+fn write_frame(stream: &mut impl Write, frame: &[u8]) -> Result<(), IpcError> {
+    stream.write_all(frame)?;
+    stream.flush()?;
+    Ok(())
+}
+
+fn read_request(stream: &mut impl Read) -> Result<Request, IpcError> {
+    let frame = read_frame(stream)?;
+    decode(&frame)
+}
+
+fn read_response(stream: &mut impl Read) -> Result<Response, IpcError> {
+    let frame = read_frame(stream)?;
+    decode_response(&frame)
+}
+
+fn read_frame(stream: &mut impl Read) -> Result<Vec<u8>, IpcError> {
+    let mut prefix = [0_u8; 4];
+    stream.read_exact(&mut prefix)?;
+    let length = u32::from_be_bytes(prefix) as usize;
+    if length > MAX_FRAME_BYTES {
+        return Err(IpcError::TooLarge);
+    }
+    let mut frame = Vec::with_capacity(length + 4);
+    frame.extend(prefix);
+    frame.resize(length + 4, 0);
+    stream.read_exact(&mut frame[4..])?;
+    Ok(frame)
 }
 #[cfg(test)]
 mod tests {
@@ -179,5 +369,49 @@ mod tests {
         assert!(!subscriptions.add("overflow"));
         assert!(subscriptions.remove("workspace"));
         assert!(subscriptions.add("replacement"));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn owner_only_transport_preserves_request_ids() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let path = std::env::temp_dir().join(format!(
+            "horyzond-ipc-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let server = IpcServer::bind(&path).expect("server");
+        assert_eq!(
+            std::fs::metadata(&path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        let worker = std::thread::spawn(move || {
+            loop {
+                if server
+                    .poll(|request| Response::success(&request, serde_json::json!({ "ok": true })))
+                    .expect("poll")
+                {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+        });
+        let request = Request {
+            version: VERSION,
+            id: 42,
+            method: "status".to_owned(),
+            params: serde_json::Value::Null,
+        };
+        let response = super::request(&path, &request).expect("response");
+        assert_eq!(response.id, request.id);
+        assert_eq!(response.result, Some(serde_json::json!({ "ok": true })));
+        worker.join().expect("worker");
     }
 }
