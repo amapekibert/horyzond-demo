@@ -6,6 +6,7 @@
 use std::fmt;
 use wm_config::ConfigManager;
 use wm_core::CoreState;
+use wm_input::{InputOutcome, InputState};
 use wm_layout::{LayoutId, LayoutInteraction, LayoutProviders, ProviderReload};
 use wm_types::Rect;
 
@@ -25,6 +26,7 @@ pub struct LayoutRuntime {
     generation: u64,
     default_layout: LayoutId,
     providers: LayoutProviders,
+    input: InputState,
 }
 impl LayoutRuntime {
     /// Creates a bridge from an already accepted configuration candidate.
@@ -38,10 +40,17 @@ impl LayoutRuntime {
         let paths = configuration
             .layout_paths()
             .ok_or(LayoutRuntimeError::NoActiveConfiguration)?;
+        let input = InputState::from_script(
+            configuration
+                .input()
+                .ok_or(LayoutRuntimeError::NoActiveConfiguration)?,
+        )
+        .map_err(LayoutRuntimeError::Input)?;
         Ok(Self {
             generation: configuration.generation(),
             default_layout,
             providers: LayoutProviders::from_layout_paths(paths),
+            input,
         })
     }
 
@@ -63,6 +72,13 @@ impl LayoutRuntime {
             .layout_paths()
             .ok_or(LayoutRuntimeError::NoActiveConfiguration)?;
         let providers = self.providers.reload(paths);
+        self.input
+            .replace_from_script(
+                configuration
+                    .input()
+                    .ok_or(LayoutRuntimeError::NoActiveConfiguration)?,
+            )
+            .map_err(LayoutRuntimeError::Input)?;
         self.default_layout = default_layout;
         self.generation = configuration.generation();
         Ok(LayoutRuntimeUpdate::Applied {
@@ -91,6 +107,19 @@ impl LayoutRuntime {
         let provider = self.providers.provider(&layout);
         core.interact_layout(provider.as_ref(), interaction, bounds);
     }
+    /// Handles one normalized configured input press.
+    pub fn press(&mut self, chord: &str) -> InputOutcome {
+        self.input.press(chord)
+    }
+    /// Clears and reports a release corresponding to a consumed press.
+    pub fn release(&mut self, chord: &str) -> bool {
+        self.input.release(chord)
+    }
+    /// Returns the current configured mode name.
+    #[must_use]
+    pub fn mode(&self) -> &str {
+        self.input.current_mode().as_str()
+    }
 
     /// Reapplies the active workspace layout after a provider reload.
     pub fn reapply_active(&self, core: &mut CoreState, bounds: Rect) {
@@ -117,12 +146,14 @@ fn active_layout_id(configuration: &ConfigManager) -> Result<LayoutId, LayoutRun
 pub enum LayoutRuntimeError {
     NoActiveConfiguration,
     InvalidLayoutId(wm_layout::LayoutIdError),
+    Input(wm_input::InputError),
 }
 impl fmt::Display for LayoutRuntimeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoActiveConfiguration => formatter.write_str("no active configuration candidate"),
             Self::InvalidLayoutId(error) => error.fmt(formatter),
+            Self::Input(error) => error.fmt(formatter),
         }
     }
 }
@@ -159,6 +190,8 @@ mod tests {
         let _ = configuration.load_initial();
         let mut runtime = LayoutRuntime::from_config(&configuration).expect("runtime");
         assert_eq!(runtime.default_layout().as_str(), "spatial");
+        assert_eq!(runtime.mode(), "normal");
+        assert!(runtime.press("Super+Enter").consumed);
 
         fs::write(
             root.join("layouts/custom.lua"),
@@ -175,6 +208,7 @@ mod tests {
             runtime.synchronize(&configuration),
             Ok(LayoutRuntimeUpdate::Applied { generation: 2, .. })
         ));
+        assert!(!runtime.release("Super+Enter"));
         let mut core = CoreState::default();
         core.apply_event(wm_backend::BackendEvent::WindowMapped(WindowId::new(1)))
             .expect("map");

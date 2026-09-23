@@ -2,7 +2,7 @@
 
 Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `feat(p5): parse modal configuration`.
+Last completed step: `feat(p5): synchronize modal bindings`.
 
 ## Resume next
 

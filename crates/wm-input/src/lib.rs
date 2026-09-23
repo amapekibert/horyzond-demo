@@ -77,37 +77,52 @@ impl InputState {
     ///
     /// Returns an error when configured modes or bindings are invalid.
     pub fn from_script(configuration: &wm_script::InputConfig) -> Result<Self, InputError> {
-        let modes = configuration
-            .modes
-            .iter()
-            .map(|(name, bindings)| {
-                Ok(Mode {
-                    id: ModeId::new(name.clone())?,
-                    bindings: bindings
-                        .iter()
-                        .map(|binding| {
-                            Ok(Binding {
-                                chord: binding.key.clone(),
-                                command: InputCommand {
-                                    name: binding.action.clone(),
-                                    arguments: binding.arguments.clone(),
-                                },
-                                next_mode: binding
-                                    .next_mode
-                                    .clone()
-                                    .map(ModeId::new)
-                                    .transpose()?,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, InputError>>()?,
-                })
-            })
-            .collect::<Result<Vec<_>, InputError>>()?;
-        Self::new(InputConfiguration {
-            initial_mode: ModeId::new(configuration.initial_mode.clone())?,
-            modes,
-        })
+        Self::new(script_configuration(configuration)?)
     }
+    /// Replaces bindings from an accepted Lua configuration candidate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when configured modes or bindings are invalid.
+    pub fn replace_from_script(
+        &mut self,
+        configuration: &wm_script::InputConfig,
+    ) -> Result<(), InputError> {
+        self.replace(script_configuration(configuration)?)
+    }
+}
+
+fn script_configuration(
+    configuration: &wm_script::InputConfig,
+) -> Result<InputConfiguration, InputError> {
+    let modes = configuration
+        .modes
+        .iter()
+        .map(|(name, bindings)| {
+            Ok(Mode {
+                id: ModeId::new(name.clone())?,
+                bindings: bindings
+                    .iter()
+                    .map(|binding| {
+                        Ok(Binding {
+                            chord: binding.key.clone(),
+                            command: InputCommand {
+                                name: binding.action.clone(),
+                                arguments: binding.arguments.clone(),
+                            },
+                            next_mode: binding.next_mode.clone().map(ModeId::new).transpose()?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, InputError>>()?,
+            })
+        })
+        .collect::<Result<Vec<_>, InputError>>()?;
+    Ok(InputConfiguration {
+        initial_mode: ModeId::new(configuration.initial_mode.clone())?,
+        modes,
+    })
+}
+impl InputState {
     /// Builds validated input state from configuration.
     ///
     /// # Errors

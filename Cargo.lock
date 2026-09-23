@@ -416,6 +416,7 @@ dependencies = [
  "wm-backend",
  "wm-config",
  "wm-core",
+ "wm-input",
  "wm-layout",
  "wm-script",
  "wm-types",

@@ -12,6 +12,7 @@ description = "Safe-boundary configuration and layout coordinator for Horyzond."
 wm-config = { path = "../wm-config" }
 wm-backend = { path = "../wm-backend" }
 wm-core = { path = "../wm-core" }
+wm-input = { path = "../wm-input" }
 wm-layout = { path = "../wm-layout" }
 wm-types = { path = "../wm-types" }
 
