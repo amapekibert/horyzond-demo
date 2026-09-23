@@ -6,7 +6,7 @@ Last completed step: `feat(p5): add modal input state`.
 
 ## Resume next
 
-Start **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complete: the core stores opaque `LayoutId` values and calls a neutral `LayoutEngine` contract; Lua providers are independent, bounded, reloadable, and versioned. They return validated geometry, optional complete back-to-front paint order, JSON-compatible state, and optional opaque interaction results. Configuration and the runtime select arbitrary IDs without knowing layout names. The API is documented in `docs/layout-provider-api.md`; bundled Lua files are examples only. Begin P5 with a neutral command model and configurable modal state machine, then add rules, hooks, versioned IPC, and `horyctl`.
+Continue **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complete: the core stores opaque `LayoutId` values and calls a neutral `LayoutEngine` contract; Lua providers are independent, bounded, reloadable, and versioned. They return validated geometry, optional complete back-to-front paint order, JSON-compatible state, and optional opaque interaction results. Configuration and the runtime select arbitrary IDs without knowing layout names. P5 now has `wm-input`, a backend-neutral modal state machine with configured bindings, transitions, consumed press/release tracking, and safe replacement. Next, parse `modes.lua` and `keybinds.lua` into the active configuration generation, then synchronize those bindings at the runtime safe boundary before adding rules, hooks, versioned IPC, and `horyctl`.
 
 ## Phase checklist
 
@@ -17,7 +17,7 @@ Start **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complete: 
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
 | P4 | Complete | Arbitrary providers have bounded calculation and interaction callbacks, validated output, isolated last-good reload handling, generic recovery, data-only state migration, cross-provider history, and independent per-workspace selection. |
-| P5 | In progress | Define neutral modal commands and configured transitions, then rules, hooks, versioned IPC, and `horyctl`. |
+| P5 | In progress | Parse configured modal bindings and synchronize them safely, then add rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
 | P8 | Not started | Layer shell, desktop protocols, clipboard, drag-and-drop, lock policy, and safe pending-spawn association. |
