@@ -28,6 +28,8 @@ P0 through P3 are implemented and P4 is in progress. The repository has a modula
 
 The detailed implementation plan is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Architectural decisions are recorded in [docs/decisions](docs/decisions).
 
+The custom provider contract is documented in [docs/layout-provider-api.md](docs/layout-provider-api.md).
+
 ## Repository layout
 
 ```text

@@ -2,11 +2,11 @@
 
 Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**. P4 is actively in progress.
 
-Last completed step: `feat(p4): poll live layout configuration`.
+Last completed step: `docs(p4): document Lua layout providers`.
 
 ## Resume next
 
-Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `LayoutId` values and calls the neutral `LayoutEngine` contract. `wm-layout` discovers arbitrary Lua provider IDs from configuration, validates declarations before registry activation, enforces bounded versioned callbacks, retains individual last-good providers on reload failure, and falls back to generic recovery placement without recognizing any shipped layout name. `wm-runtime` synchronizes accepted configuration generations to that registry at a caller-selected safe boundary, and the headless runtime polls it every 150 ms. The bundled Lua files are examples only. Next, extend the provider protocol with provider-defined interaction and state callbacks.
+Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `LayoutId` values and calls the neutral `LayoutEngine` contract. `wm-layout` discovers arbitrary Lua provider IDs from configuration, validates declarations before registry activation, enforces bounded versioned callbacks, retains individual last-good providers on reload failure, and falls back to generic recovery placement without recognizing any shipped layout name. `wm-runtime` synchronizes accepted configuration generations to that registry at a caller-selected safe boundary, and the headless runtime polls it every 150 ms. The complete API is in `docs/layout-provider-api.md`. The bundled Lua files are examples only. Next, extend the provider protocol with provider-defined interaction and state callbacks.
 
 ## Phase checklist
 
