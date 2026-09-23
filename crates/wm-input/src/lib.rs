@@ -71,6 +71,43 @@ pub struct InputState {
     consumed: BTreeSet<String>,
 }
 impl InputState {
+    /// Converts a validated Lua configuration candidate into modal input state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when configured modes or bindings are invalid.
+    pub fn from_script(configuration: &wm_script::InputConfig) -> Result<Self, InputError> {
+        let modes = configuration
+            .modes
+            .iter()
+            .map(|(name, bindings)| {
+                Ok(Mode {
+                    id: ModeId::new(name.clone())?,
+                    bindings: bindings
+                        .iter()
+                        .map(|binding| {
+                            Ok(Binding {
+                                chord: binding.key.clone(),
+                                command: InputCommand {
+                                    name: binding.action.clone(),
+                                    arguments: binding.arguments.clone(),
+                                },
+                                next_mode: binding
+                                    .next_mode
+                                    .clone()
+                                    .map(ModeId::new)
+                                    .transpose()?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, InputError>>()?,
+                })
+            })
+            .collect::<Result<Vec<_>, InputError>>()?;
+        Self::new(InputConfiguration {
+            initial_mode: ModeId::new(configuration.initial_mode.clone())?,
+            modes,
+        })
+    }
     /// Builds validated input state from configuration.
     ///
     /// # Errors

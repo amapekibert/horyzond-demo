@@ -36,6 +36,22 @@ pub struct LoadedScript {
     pub layout_paths: BTreeMap<String, PathBuf>,
     /// The requested initial profile, defaulting to the canonical SPATIAL name.
     pub default_layout: String,
+    /// Data-only modal bindings extracted from `modes` and `keybinds`.
+    pub input: InputConfig,
+}
+/// Data-only modal configuration owned by the Lua configuration candidate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputConfig {
+    pub initial_mode: String,
+    pub modes: BTreeMap<String, Vec<InputBinding>>,
+}
+/// One configured modal binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputBinding {
+    pub key: String,
+    pub action: String,
+    pub arguments: Vec<String>,
+    pub next_mode: Option<String>,
 }
 
 /// Loads one configuration root and all files imported with `source()`.
@@ -102,6 +118,7 @@ impl ScriptLoader {
         validate_configuration(&lua)?;
         let layout_paths = extract_layout_paths(&lua, &self.root)?;
         let default_layout = extract_default_layout(&lua)?;
+        let input = extract_input(&lua)?;
         state
             .borrow_mut()
             .dependencies
@@ -110,8 +127,65 @@ impl ScriptLoader {
             dependencies: state.borrow().dependencies.clone(),
             layout_paths,
             default_layout,
+            input,
         })
     }
+}
+
+fn extract_input(lua: &Lua) -> Result<InputConfig, ScriptError> {
+    let modes: mlua::Table = lua.globals().get("modes").map_err(ScriptError::Lua)?;
+    let mut extracted = BTreeMap::new();
+    for pair in modes.pairs::<String, mlua::Table>() {
+        let (name, mode) = pair.map_err(ScriptError::Lua)?;
+        extracted.insert(
+            name,
+            extract_bindings(mode.get("binds").map_err(ScriptError::Lua)?)?,
+        );
+    }
+    let keybinds: Option<mlua::Table> = lua.globals().get("keybinds").map_err(ScriptError::Lua)?;
+    let global = keybinds
+        .map(|table| extract_bindings(Some(table)))
+        .transpose()?
+        .unwrap_or_default();
+    extracted
+        .entry("normal".to_owned())
+        .or_default()
+        .extend(global);
+    Ok(InputConfig {
+        initial_mode: "normal".to_owned(),
+        modes: extracted,
+    })
+}
+
+fn extract_bindings(table: Option<mlua::Table>) -> Result<Vec<InputBinding>, ScriptError> {
+    let Some(table) = table else {
+        return Ok(Vec::new());
+    };
+    table
+        .sequence_values::<mlua::Table>()
+        .map(|entry| {
+            let entry = entry.map_err(ScriptError::Lua)?;
+            let key = entry.get("key").map_err(ScriptError::Lua)?;
+            let action = entry.get("action").map_err(ScriptError::Lua)?;
+            let arguments = entry
+                .get::<Option<mlua::Table>>("command")
+                .map_err(ScriptError::Lua)?
+                .map(|command| {
+                    command
+                        .sequence_values::<String>()
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(ScriptError::Lua)
+                })
+                .transpose()?
+                .unwrap_or_default();
+            Ok(InputBinding {
+                key,
+                action,
+                arguments,
+                next_mode: entry.get("mode").map_err(ScriptError::Lua)?,
+            })
+        })
+        .collect()
 }
 
 fn validate_configuration(lua: &Lua) -> Result<(), ScriptError> {

@@ -386,6 +386,9 @@ version = "0.26.0"
 [[package]]
 name = "wm-input"
 version = "0.26.0"
+dependencies = [
+ "wm-script",
+]
 
 [[package]]
 name = "wm-layout"

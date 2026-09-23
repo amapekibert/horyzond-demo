@@ -252,6 +252,11 @@ impl ConfigManager {
             .as_ref()
             .map(|candidate| candidate.default_layout.as_str())
     }
+    /// Returns modal bindings from the active configuration candidate.
+    #[must_use]
+    pub fn input(&self) -> Option<&wm_script::InputConfig> {
+        self.active.as_ref().map(|candidate| &candidate.input)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

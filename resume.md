@@ -2,7 +2,7 @@
 
 Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `feat(p5): add modal input state`.
+Last completed step: `feat(p5): parse modal configuration`.
 
 ## Resume next
 
