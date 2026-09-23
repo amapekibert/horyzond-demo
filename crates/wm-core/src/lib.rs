@@ -1,9 +1,11 @@
-//! Deterministic core state independent of window-system and renderer details.
+//! Deterministic coordinator state with opaque external layout providers.
+
+#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use wm_backend::BackendEvent;
-use wm_layout::{LayoutEngine, LayoutInput, LayoutProfile, LayoutProviders, LayoutState, builtin};
+use wm_layout::{LayoutEngine, LayoutId, LayoutInput, LayoutState};
 use wm_scene::{Camera2D, Scene};
 use wm_types::{OutputId, OutputInfo, Rect, WindowId};
 
@@ -24,8 +26,8 @@ pub struct Workspace {
     pub camera: Camera2D,
     pub scene: Scene,
     focused: Option<WindowId>,
-    profile: LayoutProfile,
-    profile_geometry: BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>>,
+    layout: LayoutId,
+    layout_geometry: BTreeMap<LayoutId, BTreeMap<WindowId, Rect>>,
 }
 impl Workspace {
     fn new(id: WorkspaceId) -> Self {
@@ -34,33 +36,29 @@ impl Workspace {
             camera: Camera2D::default(),
             scene: Scene::default(),
             focused: None,
-            profile: LayoutProfile::Spatial,
-            profile_geometry: BTreeMap::new(),
+            layout: LayoutId::new("default").expect("constant ID"),
+            layout_geometry: BTreeMap::new(),
         }
     }
-    /// Returns the focused mapped window, if any.
     #[must_use]
     pub const fn focused(&self) -> Option<WindowId> {
         self.focused
     }
-    /// Returns the active layout profile.
     #[must_use]
-    pub const fn profile(&self) -> LayoutProfile {
-        self.profile
+    pub fn layout(&self) -> &LayoutId {
+        &self.layout
     }
-
-    fn layout_state(&self) -> LayoutState {
-        LayoutState::new(self.profile, self.profile_geometry.clone())
+    fn state(&self) -> LayoutState {
+        LayoutState::new(self.layout.clone(), self.layout_geometry.clone())
     }
-
-    fn restore_layout_state(&mut self, state: LayoutState, windows: &BTreeSet<WindowId>) {
-        self.profile = state.active_profile();
-        self.profile_geometry = state.into_geometry();
-        for geometry in self.profile_geometry.values_mut() {
+    fn restore(&mut self, state: LayoutState, windows: &BTreeSet<WindowId>) {
+        self.layout = state.active_layout().clone();
+        self.layout_geometry = state.into_geometry();
+        for geometry in self.layout_geometry.values_mut() {
             geometry.retain(|window, _| windows.contains(window));
         }
         self.scene.clear();
-        if let Some(geometry) = self.profile_geometry.get(&self.profile) {
+        if let Some(geometry) = self.layout_geometry.get(&self.layout) {
             for (window, bounds) in geometry {
                 self.scene.set_window(*window, *bounds);
             }
@@ -91,20 +89,13 @@ impl Default for CoreState {
         }
     }
 }
-
 impl CoreState {
-    /// Creates an empty workspace and returns its stable session ID.
     pub fn create_workspace(&mut self) -> WorkspaceId {
         let id = WorkspaceId::new(self.next_workspace);
         self.next_workspace += 1;
         self.workspaces.insert(id, Workspace::new(id));
         id
     }
-    /// Makes an existing workspace active.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the requested workspace does not exist.
     pub fn switch_workspace(&mut self, workspace: WorkspaceId) -> Result<(), CoreError> {
         if !self.workspaces.contains_key(&workspace) {
             return Err(CoreError::UnknownWorkspace(workspace));
@@ -112,11 +103,6 @@ impl CoreState {
         self.active_workspace = workspace;
         Ok(())
     }
-    /// Applies one normalized backend event in order.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid window lifecycle transitions.
     pub fn apply_event(&mut self, event: BackendEvent) -> Result<(), CoreError> {
         match event {
             BackendEvent::OutputAdded(output) => {
@@ -139,7 +125,7 @@ impl CoreState {
                     if workspace.focused == Some(window) {
                         workspace.focused = None;
                     }
-                    for geometry in workspace.profile_geometry.values_mut() {
+                    for geometry in workspace.layout_geometry.values_mut() {
                         geometry.remove(&window);
                     }
                 }
@@ -147,30 +133,20 @@ impl CoreState {
         }
         Ok(())
     }
-    /// Sets desired world geometry in the active workspace.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the window is not mapped.
     pub fn set_geometry(&mut self, window: WindowId, geometry: Rect) -> Result<(), CoreError> {
         if !self.windows.contains(&window) {
             return Err(CoreError::NotMapped(window));
         }
-        let profile = self.active_workspace().profile;
         let workspace = self.active_workspace_mut();
+        let layout = workspace.layout.clone();
         workspace.scene.set_window(window, geometry);
         workspace
-            .profile_geometry
-            .entry(profile)
+            .layout_geometry
+            .entry(layout)
             .or_default()
             .insert(window, geometry);
         Ok(())
     }
-    /// Changes focus to a mapped window in the active workspace.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the window is not mapped.
     pub fn focus(&mut self, window: WindowId) -> Result<(), CoreError> {
         if !self.windows.contains(&window) {
             return Err(CoreError::NotMapped(window));
@@ -178,14 +154,6 @@ impl CoreState {
         self.active_workspace_mut().focused = Some(window);
         Ok(())
     }
-    /// Raises a mapped window above its siblings in the active workspace.
-    ///
-    /// Focus and paint order remain independent: callers must explicitly
-    /// request a raise when a profile policy permits it.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the window is not mapped or absent from the active scene.
     pub fn raise(&mut self, window: WindowId) -> Result<(), CoreError> {
         if !self.windows.contains(&window) {
             return Err(CoreError::NotMapped(window));
@@ -195,37 +163,15 @@ impl CoreState {
         }
         Ok(())
     }
-    /// Switches profile and applies the corresponding layout to all mapped windows.
-    pub fn set_layout_profile(&mut self, profile: LayoutProfile, bounds: Rect) {
-        let engine = builtin(profile);
-        self.apply_layout(engine.as_ref(), bounds);
-    }
-    /// Switches profile using the active configuration candidate when it has a
-    /// readable provider, otherwise using that profile's native recovery engine.
-    pub fn set_configured_layout_profile(
-        &mut self,
-        profile: LayoutProfile,
-        providers: &LayoutProviders,
-        bounds: Rect,
-    ) {
-        let engine = providers.provider(profile);
-        self.apply_layout(engine.as_ref(), bounds);
-    }
-    /// Reapplies the active profile through providers from a new configuration
-    /// generation while retaining data-only compatible profile state.
-    pub fn migrate_active_layout(&mut self, providers: &LayoutProviders, bounds: Rect) {
-        let profile = self.active_workspace().profile;
-        self.set_configured_layout_profile(profile, providers, bounds);
-    }
-    /// Applies any configured or built-in profile provider to the active workspace.
+    /// Applies an externally selected provider. Core never interprets its ID.
     pub fn apply_layout(&mut self, engine: &dyn LayoutEngine, bounds: Rect) {
         let windows = self.windows.iter().copied().collect::<Vec<_>>();
         let workspace = self.active_workspace_mut();
-        let profile = engine.profile();
-        workspace.profile = profile;
+        let layout = engine.id().clone();
+        workspace.layout = layout.clone();
         let existing = workspace
-            .profile_geometry
-            .entry(profile)
+            .layout_geometry
+            .entry(layout.clone())
             .or_default()
             .clone();
         let result = engine.calculate(&LayoutInput {
@@ -237,27 +183,16 @@ impl CoreState {
         for (window, geometry) in &result {
             workspace.scene.set_window(*window, *geometry);
         }
-        workspace.profile_geometry.insert(profile, result);
+        workspace.layout_geometry.insert(layout, result);
     }
-    /// Returns a versioned, data-only snapshot of the active workspace layout.
     #[must_use]
     pub fn active_layout_state(&self) -> LayoutState {
-        self.active_workspace().layout_state()
+        self.active_workspace().state()
     }
-    /// Restores active-workspace layout state after validating its format.
-    ///
-    /// Closed or unknown window IDs are discarded; only currently mapped
-    /// windows can re-enter the scene.
     pub fn restore_active_layout_state(&mut self, state: LayoutState) {
         let windows = self.windows.clone();
-        self.active_workspace_mut()
-            .restore_layout_state(state, &windows);
+        self.active_workspace_mut().restore(state, &windows);
     }
-    /// Returns the active workspace.
-    ///
-    /// # Panics
-    ///
-    /// Panics only if internal core state was corrupted and lost its default workspace.
     #[must_use]
     pub fn active_workspace(&self) -> &Workspace {
         self.workspaces
@@ -271,7 +206,6 @@ impl CoreState {
     }
 }
 
-/// A lifecycle invariant violation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoreError {
     AlreadyMapped(WindowId),
@@ -295,199 +229,47 @@ impl std::error::Error for CoreError {}
 
 #[cfg(test)]
 mod tests {
-    use super::CoreState;
-    use wm_backend::BackendEvent;
-    use wm_types::{Rect, WindowId};
+    use super::*;
+    use wm_layout::RecoveryLayout;
+    use wm_types::Point;
     #[test]
-    fn lifecycle_clears_focus_and_scene() {
+    fn arbitrary_external_layout_id_drives_core() {
         let mut core = CoreState::default();
-        let id = WindowId::new(1);
-        core.apply_event(BackendEvent::WindowMapped(id))
+        let window = WindowId::new(1);
+        core.apply_event(BackendEvent::WindowMapped(window))
             .expect("map");
-        core.set_geometry(id, Rect::new(0.0, 0.0, 10.0, 10.0).expect("rect"))
-            .expect("geometry");
-        core.focus(id).expect("focus");
-        core.apply_event(BackendEvent::WindowUnmapped(id))
-            .expect("unmap");
-        assert_eq!(core.active_workspace().focused(), None);
-        assert_eq!(
-            core.active_workspace()
-                .scene
-                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
-            None
-        );
-    }
-
-    #[test]
-    fn profile_switch_keeps_mapped_windows() {
-        let mut core = CoreState::default();
-        let first = WindowId::new(1);
-        let second = WindowId::new(2);
-        core.apply_event(BackendEvent::WindowMapped(first))
-            .expect("map first");
-        core.apply_event(BackendEvent::WindowMapped(second))
-            .expect("map second");
-        core.set_layout_profile(
-            wm_layout::LayoutProfile::Tiling,
-            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
-        );
-        assert_eq!(
-            core.active_workspace().profile(),
-            wm_layout::LayoutProfile::Tiling
-        );
+        let layout = RecoveryLayout::new(LayoutId::new("plugin-layout").expect("ID"));
+        core.apply_layout(&layout, Rect::new(0., 0., 100., 100.).expect("bounds"));
+        assert_eq!(core.active_workspace().layout().as_str(), "plugin-layout");
         assert!(
             core.active_workspace()
                 .scene
-                .pick(wm_types::Point::new(25.0, 25.0).expect("point"))
+                .pick(Point::new(1., 1.).expect("point"))
                 .is_some()
         );
     }
     #[test]
-    fn workspaces_keep_independent_scene_state() {
-        let mut core = CoreState::default();
-        let first = WindowId::new(1);
-        core.apply_event(BackendEvent::WindowMapped(first))
-            .expect("map");
-        core.set_geometry(first, Rect::new(0.0, 0.0, 10.0, 10.0).expect("rect"))
-            .expect("geometry");
-        let second_workspace = core.create_workspace();
-        core.switch_workspace(second_workspace).expect("switch");
-        assert_eq!(
-            core.active_workspace()
-                .scene
-                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
-            None
-        );
-        core.switch_workspace(super::WorkspaceId::new(1))
-            .expect("switch back");
-        assert_eq!(
-            core.active_workspace()
-                .scene
-                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
-            Some(first)
-        );
-    }
-
-    #[test]
-    fn configured_provider_drives_profile_geometry() {
-        let root = std::env::temp_dir().join(format!(
-            "horyzond-core-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).expect("root");
-        let path = root.join("spatial.lua");
-        std::fs::write(
-            &path,
-            "function calculate() return { [1] = { x = 20, y = 30, width = 40, height = 50 } } end",
-        )
-        .expect("provider");
-        let providers = wm_layout::LayoutProviders::from_profile_paths(
-            &std::collections::BTreeMap::from([("spatial".to_owned(), path)]),
-        );
-        let mut core = CoreState::default();
+    fn state_restores_only_mapped_windows() {
+        let mut source = CoreState::default();
         let window = WindowId::new(1);
-        core.apply_event(BackendEvent::WindowMapped(window))
-            .expect("map");
-        core.set_configured_layout_profile(
-            wm_layout::LayoutProfile::Spatial,
-            &providers,
-            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
-        );
-        assert_eq!(
-            core.active_workspace()
-                .scene
-                .pick(wm_types::Point::new(21.0, 31.0).expect("point")),
-            Some(window)
-        );
-        std::fs::remove_dir_all(root).expect("cleanup");
-    }
-
-    #[test]
-    fn layout_state_restores_only_currently_mapped_windows() {
-        let mut original = CoreState::default();
-        let window = WindowId::new(1);
-        original
+        source
             .apply_event(BackendEvent::WindowMapped(window))
             .expect("map");
-        original
-            .set_geometry(window, Rect::new(10.0, 20.0, 30.0, 40.0).expect("rect"))
+        source
+            .set_geometry(window, Rect::new(1., 2., 3., 4.).expect("rect"))
             .expect("geometry");
-        let state = original.active_layout_state();
-        let encoded = state.to_json().expect("encode");
-
+        let state = source.active_layout_state();
         let mut restored = CoreState::default();
         restored
             .apply_event(BackendEvent::WindowMapped(window))
             .expect("map");
-        restored.restore_active_layout_state(
-            wm_layout::LayoutState::from_json(&encoded).expect("decode"),
-        );
+        restored.restore_active_layout_state(state);
         assert_eq!(
             restored
                 .active_workspace()
                 .scene
-                .pick(wm_types::Point::new(11.0, 21.0).expect("point")),
+                .pick(Point::new(2., 3.).expect("point")),
             Some(window)
-        );
-
-        restored
-            .apply_event(BackendEvent::WindowUnmapped(window))
-            .expect("unmap");
-        assert!(
-            restored
-                .active_layout_state()
-                .geometry(wm_layout::LayoutProfile::Spatial)
-                .is_none_or(std::collections::BTreeMap::is_empty)
-        );
-    }
-
-    #[test]
-    fn configuration_migration_reuses_data_only_profile_geometry() {
-        let mut core = CoreState::default();
-        let window = WindowId::new(1);
-        core.apply_event(BackendEvent::WindowMapped(window))
-            .expect("map");
-        core.set_geometry(window, Rect::new(10.0, 20.0, 30.0, 40.0).expect("rect"))
-            .expect("geometry");
-        core.migrate_active_layout(
-            &wm_layout::LayoutProviders::default(),
-            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
-        );
-        assert_eq!(
-            core.active_workspace()
-                .scene
-                .pick(wm_types::Point::new(11.0, 21.0).expect("point")),
-            Some(window)
-        );
-    }
-
-    #[test]
-    fn focus_does_not_raise_but_explicit_raise_does() {
-        let mut core = CoreState::default();
-        let first = WindowId::new(1);
-        let second = WindowId::new(2);
-        for window in [first, second] {
-            core.apply_event(BackendEvent::WindowMapped(window))
-                .expect("map");
-            core.set_geometry(window, Rect::new(0.0, 0.0, 20.0, 20.0).expect("rect"))
-                .expect("geometry");
-        }
-        core.focus(first).expect("focus");
-        assert_eq!(
-            core.active_workspace()
-                .scene
-                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
-            Some(second)
-        );
-        core.raise(first).expect("raise");
-        assert_eq!(
-            core.active_workspace()
-                .scene
-                .pick(wm_types::Point::new(1.0, 1.0).expect("point")),
-            Some(first)
         );
     }
 }

@@ -7,7 +7,7 @@ This plan develops [horyzondRust-architecture.md](horyzondRust-architecture.md) 
 ## 1. Product requirements
 
 - Implement a Rust window manager and compositor with KISS design and independently testable modules.
-- Support four independent, runtime-selectable workspace profiles: SPATIAL, SCROLLING, TILING, and STACKING.
+- Support independent, runtime-selectable Lua layout providers. Ship SPATIAL, SCROLLING, TILING, and STACKING only as editable examples; the WM core must not recognize their names or behavior.
 - Deliver Wayland and OpenGL first. Preserve explicit extension points for native X11 and Vulkan from P0, without pretending that every backend has identical capabilities.
 - Keep user policy in editable Lua files: settings, bindings, rules, profile algorithms, hooks, and theme declarations. Keep shader source in external shader files referenced by configuration.
 - Use `~/.config/horyzond/` as the default user directory, exactly as requested. Resolve `~` from the user's home directory, independently of the working directory. A deliberate `--config-dir` override may support testing and additional instances; do not silently redirect the default through `XDG_CONFIG_HOME`.

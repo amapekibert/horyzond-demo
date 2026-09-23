@@ -1,4 +1,4 @@
-layout = { name = "scrolling", profile = "scrolling", api_version = 1 }
+layout = { id = "scrolling", api_version = 1 }
 
 -- A horizontal world-space ribbon. Camera movement reveals distant columns.
 function calculate(windows, bounds, _camera)

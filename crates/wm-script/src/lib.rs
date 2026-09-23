@@ -33,9 +33,9 @@ pub struct LoadedScript {
     ///
     /// The paths are confined to the configuration root and are also included
     /// in `dependencies`, so editing a provider triggers a configuration reload.
-    pub profile_paths: BTreeMap<String, PathBuf>,
+    pub layout_paths: BTreeMap<String, PathBuf>,
     /// The requested initial profile, defaulting to the canonical SPATIAL name.
-    pub default_profile: String,
+    pub default_layout: String,
 }
 
 /// Loads one configuration root and all files imported with `source()`.
@@ -100,22 +100,22 @@ impl ScriptLoader {
             .map_err(ScriptError::Lua)?;
         execute_file(&lua, &self.root, &state, "config.lua")?;
         validate_configuration(&lua)?;
-        let profile_paths = extract_profile_paths(&lua, &self.root)?;
-        let default_profile = extract_default_profile(&lua)?;
+        let layout_paths = extract_layout_paths(&lua, &self.root)?;
+        let default_layout = extract_default_layout(&lua)?;
         state
             .borrow_mut()
             .dependencies
-            .extend(profile_paths.values().cloned());
+            .extend(layout_paths.values().cloned());
         Ok(LoadedScript {
             dependencies: state.borrow().dependencies.clone(),
-            profile_paths,
-            default_profile,
+            layout_paths,
+            default_layout,
         })
     }
 }
 
 fn validate_configuration(lua: &Lua) -> Result<(), ScriptError> {
-    for name in ["settings", "modes", "profiles"] {
+    for name in ["settings", "modes", "layouts"] {
         if !matches!(
             lua.globals().get::<Value>(name).map_err(ScriptError::Lua)?,
             Value::Table(_)
@@ -128,17 +128,17 @@ fn validate_configuration(lua: &Lua) -> Result<(), ScriptError> {
     Ok(())
 }
 
-fn extract_profile_paths(lua: &Lua, root: &Path) -> Result<BTreeMap<String, PathBuf>, ScriptError> {
+fn extract_layout_paths(lua: &Lua, root: &Path) -> Result<BTreeMap<String, PathBuf>, ScriptError> {
     let profiles = lua
         .globals()
-        .get::<mlua::Table>("profiles")
+        .get::<mlua::Table>("layouts")
         .map_err(ScriptError::Lua)?;
     let mut paths = BTreeMap::new();
     for pair in profiles.pairs::<String, Value>() {
         let (name, value) = pair.map_err(ScriptError::Lua)?;
         let Value::String(relative) = value else {
             return Err(ScriptError::Schema(format!(
-                "profiles.{name} must be a string path"
+                "layouts.{name} must be a string path"
             )));
         };
         let relative = relative.to_str().map_err(ScriptError::Lua)?;
@@ -151,13 +151,13 @@ fn extract_profile_paths(lua: &Lua, root: &Path) -> Result<BTreeMap<String, Path
     Ok(paths)
 }
 
-fn extract_default_profile(lua: &Lua) -> Result<String, ScriptError> {
+fn extract_default_layout(lua: &Lua) -> Result<String, ScriptError> {
     let settings = lua
         .globals()
         .get::<mlua::Table>("settings")
         .map_err(ScriptError::Lua)?;
     settings
-        .get::<Option<String>>("default_profile")
+        .get::<Option<String>>("default_layout")
         .map_err(ScriptError::Lua)
         .map(|profile| profile.unwrap_or_else(|| "spatial".to_owned()))
 }
@@ -256,7 +256,7 @@ mod tests {
         fs::create_dir_all(&root).expect("root");
         fs::write(
             root.join("config.lua"),
-            "settings = {}\nmodes = {}\nprofiles = {}\nvalue = source('sub.lua')\nagain = source('sub.lua')\n",
+            "settings = {}\nmodes = {}\nlayouts = {}\nvalue = source('sub.lua')\nagain = source('sub.lua')\n",
         )
         .expect("config");
         fs::write(root.join("sub.lua"), "return { enabled = true }\n").expect("sub");
@@ -273,7 +273,7 @@ mod tests {
         fs::create_dir_all(&root).expect("root");
         fs::write(
             root.join("config.lua"),
-            "settings = {}\nmodes = {}\nprofiles = {}\nsource('a.lua')\n",
+            "settings = {}\nmodes = {}\nlayouts = {}\nsource('a.lua')\n",
         )
         .expect("config");
         fs::write(root.join("a.lua"), "source('config.lua')\n").expect("cycle");
@@ -292,7 +292,7 @@ mod tests {
         fs::create_dir_all(root.join("layouts")).expect("layouts");
         fs::write(
             root.join("config.lua"),
-            "settings = {}\nmodes = {}\nprofiles = { spatial = 'layouts/spatial.lua' }\n",
+            "settings = {}\nmodes = {}\nlayouts = { spatial = 'layouts/spatial.lua' }\n",
         )
         .expect("config");
         let profile = root.join("layouts/spatial.lua");
@@ -302,8 +302,8 @@ mod tests {
             .load()
             .expect("load");
         let profile = fs::canonicalize(profile).expect("canonical profile");
-        assert_eq!(loaded.profile_paths["spatial"], profile);
-        assert_eq!(loaded.default_profile, "spatial");
+        assert_eq!(loaded.layout_paths["spatial"], profile);
+        assert_eq!(loaded.default_layout, "spatial");
         assert!(loaded.dependencies.contains(&profile));
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -317,7 +317,7 @@ mod tests {
         fs::write(
             root.join("config.lua"),
             format!(
-                "settings = {{}}\nmodes = {{}}\nprofiles = {{ spatial = '{}' }}\n",
+                "settings = {{}}\nmodes = {{}}\nlayouts = {{ spatial = '{}' }}\n",
                 outside.display()
             ),
         )

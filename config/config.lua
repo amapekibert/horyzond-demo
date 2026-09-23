@@ -5,13 +5,13 @@ source("theme.lua")
 
 -- Default settings. These values are loaded in P2.
 settings = {
-  default_profile = "spatial",
+  default_layout = "spatial",
   reload = { enabled = true, debounce_ms = 150 },
   logging = { level = "trace", detail = "full" },
 }
 
 modes = source("modes.lua")
-profiles = {
+layouts = {
   spatial = "layouts/spatial.lua",
   scrolling = "layouts/scrolling.lua",
   tiling = "layouts/tiling.lua",

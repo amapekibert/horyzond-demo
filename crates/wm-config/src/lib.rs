@@ -226,31 +226,31 @@ impl ConfigManager {
         self.generation
     }
 
-    /// Returns the canonical Lua provider path selected for a profile by the
+    /// Returns the canonical Lua provider path selected for a layout by the
     /// active configuration candidate.
     #[must_use]
-    pub fn profile_path(&self, profile: &str) -> Option<&Path> {
+    pub fn layout_path(&self, layout: &str) -> Option<&Path> {
         self.active
             .as_ref()?
-            .profile_paths
-            .get(profile)
+            .layout_paths
+            .get(layout)
             .map(PathBuf::as_path)
     }
 
     /// Returns every canonical provider path from the active configuration candidate.
     #[must_use]
-    pub fn profile_paths(&self) -> Option<&std::collections::BTreeMap<String, PathBuf>> {
+    pub fn layout_paths(&self) -> Option<&std::collections::BTreeMap<String, PathBuf>> {
         self.active
             .as_ref()
-            .map(|candidate| &candidate.profile_paths)
+            .map(|candidate| &candidate.layout_paths)
     }
 
-    /// Returns the default profile selected by the active configuration candidate.
+    /// Returns the default layout selected by the active configuration candidate.
     #[must_use]
-    pub fn default_profile(&self) -> Option<&str> {
+    pub fn default_layout(&self) -> Option<&str> {
         self.active
             .as_ref()
-            .map(|candidate| candidate.default_profile.as_str())
+            .map(|candidate| candidate.default_layout.as_str())
     }
 }
 
@@ -463,7 +463,7 @@ mod tests {
         fs::create_dir_all(&root).expect("root");
         fs::write(
             root.join("config.lua"),
-            "settings = {}\nmodes = {}\nprofiles = {}\n",
+            "settings = {}\nmodes = {}\nlayouts = {}\n",
         )
         .expect("valid config");
         let config = ConfigPath::from_override(&root);
@@ -493,8 +493,8 @@ mod tests {
             manager.load_initial(),
             super::ReloadOutcome::Applied { generation: 1 }
         ));
-        assert!(manager.profile_path("spatial").is_some());
-        assert_eq!(manager.default_profile(), Some("spatial"));
+        assert!(manager.layout_path("spatial").is_some());
+        assert_eq!(manager.default_layout(), Some("spatial"));
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

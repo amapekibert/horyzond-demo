@@ -54,7 +54,7 @@ checksum = "ef25905e51abafe4dcea6c15fec58c57b601cdbd0ee53d22ea1d3016c587d39b"
 
 [[package]]
 name = "horyzond"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "wm-backend",
  "wm-backend-headless",
@@ -308,14 +308,14 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 
 [[package]]
 name = "wm-backend"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "wm-types",
 ]
 
 [[package]]
 name = "wm-backend-headless"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "wm-backend",
  "wm-types",
@@ -323,14 +323,14 @@ dependencies = [
 
 [[package]]
 name = "wm-config"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "wm-script",
 ]
 
 [[package]]
 name = "wm-core"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "wm-backend",
  "wm-layout",
@@ -340,11 +340,11 @@ dependencies = [
 
 [[package]]
 name = "wm-diagnostics"
-version = "0.1.0"
+version = "0.26.0"
 
 [[package]]
 name = "wm-layout"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "mlua",
  "serde",
@@ -355,14 +355,14 @@ dependencies = [
 
 [[package]]
 name = "wm-render"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "wm-types",
 ]
 
 [[package]]
 name = "wm-scene"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "wm-render",
  "wm-types",
@@ -370,14 +370,14 @@ dependencies = [
 
 [[package]]
 name = "wm-script"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "mlua",
 ]
 
 [[package]]
 name = "wm-types"
-version = "0.1.0"
+version = "0.26.0"
 dependencies = [
  "serde",
 ]

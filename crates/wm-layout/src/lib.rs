@@ -1,4 +1,7 @@
-//! Deterministic world-space layout algorithms without backend or renderer state.
+//! Layout-provider protocol and bounded Lua runtime.
+//!
+//! This crate intentionally has no built-in knowledge of shipped layouts. A
+//! layout is an opaque ID plus a provider file selected by configuration.
 
 #![allow(clippy::cast_precision_loss)]
 
@@ -6,66 +9,92 @@ use mlua::{Error as LuaError, HookTriggers, Lua, LuaOptions, StdLib, Table, Valu
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use wm_script::ScriptLimits;
 use wm_types::{Rect, WindowId};
 
-/// The four canonical Horyzond workspace profiles.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-pub enum LayoutProfile {
-    Spatial,
-    Scrolling,
-    Tiling,
-    Stacking,
+/// An opaque stable name chosen entirely by configuration.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct LayoutId(String);
+impl LayoutId {
+    /// Creates a non-empty layout identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the name has no non-whitespace text.
+    pub fn new(value: impl Into<String>) -> Result<Self, LayoutIdError> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(LayoutIdError::Empty);
+        }
+        Ok(Self(value))
+    }
+    /// Returns the configured name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
+impl fmt::Display for LayoutId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+/// Invalid layout identifier input.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayoutIdError {
+    Empty,
+}
+impl fmt::Display for LayoutIdError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("layout ID must not be empty")
+    }
+}
+impl std::error::Error for LayoutIdError {}
 
-/// Versioned, data-only state for one workspace's layout profiles.
+/// Versioned, data-only state for one workspace's selected layouts.
 ///
 /// Lua closures and provider source are intentionally excluded. The state can
-/// therefore survive provider replacement and be validated before use.
+/// survive provider replacement and be validated before use.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct LayoutState {
     version: u32,
-    active_profile: LayoutProfile,
-    profile_geometry: BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>>,
+    active_layout: LayoutId,
+    geometry: BTreeMap<LayoutId, BTreeMap<WindowId, Rect>>,
 }
 impl LayoutState {
     /// Current format revision for serialized layout state.
     pub const VERSION: u32 = 1;
-
-    /// Creates state from a workspace's active profile and saved geometry.
+    /// Creates state from a workspace's active layout and saved geometry.
     #[must_use]
     pub fn new(
-        active_profile: LayoutProfile,
-        profile_geometry: BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>>,
+        active_layout: LayoutId,
+        geometry: BTreeMap<LayoutId, BTreeMap<WindowId, Rect>>,
     ) -> Self {
         Self {
             version: Self::VERSION,
-            active_profile,
-            profile_geometry,
+            active_layout,
+            geometry,
         }
     }
-
-    /// Returns the active profile recorded in this state.
+    /// Returns the active layout recorded in this state.
     #[must_use]
-    pub const fn active_profile(&self) -> LayoutProfile {
-        self.active_profile
+    pub fn active_layout(&self) -> &LayoutId {
+        &self.active_layout
     }
-
-    /// Returns saved geometry for one profile.
+    /// Returns saved geometry for one opaque layout ID.
     #[must_use]
-    pub fn geometry(&self, profile: LayoutProfile) -> Option<&BTreeMap<WindowId, Rect>> {
-        self.profile_geometry.get(&profile)
+    pub fn geometry(&self, layout: &LayoutId) -> Option<&BTreeMap<WindowId, Rect>> {
+        self.geometry.get(layout)
     }
-
-    /// Consumes this state into its data-only profile geometry.
+    /// Consumes this state into its data-only geometry map.
     #[must_use]
-    pub fn into_geometry(self) -> BTreeMap<LayoutProfile, BTreeMap<WindowId, Rect>> {
-        self.profile_geometry
+    pub fn into_geometry(self) -> BTreeMap<LayoutId, BTreeMap<WindowId, Rect>> {
+        self.geometry
     }
-
     /// Encodes a deterministic JSON document for persistence or diagnosis.
     ///
     /// # Errors
@@ -74,7 +103,6 @@ impl LayoutState {
     pub fn to_json(&self) -> Result<String, LayoutStateError> {
         serde_json::to_string(self).map_err(LayoutStateError::Json)
     }
-
     /// Decodes and validates a persisted JSON document.
     ///
     /// # Errors
@@ -88,15 +116,14 @@ impl LayoutState {
         Ok(state)
     }
 }
-
-/// A failure while encoding or decoding data-only profile state.
+/// A failure while encoding or decoding data-only layout state.
 #[derive(Debug)]
 pub enum LayoutStateError {
     Json(serde_json::Error),
     UnsupportedVersion(u32),
 }
-impl std::fmt::Display for LayoutStateError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for LayoutStateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Json(error) => error.fmt(formatter),
             Self::UnsupportedVersion(version) => {
@@ -106,31 +133,8 @@ impl std::fmt::Display for LayoutStateError {
     }
 }
 impl std::error::Error for LayoutStateError {}
-impl LayoutProfile {
-    /// Resolves one stable configuration-table name.
-    #[must_use]
-    pub fn from_config_name(name: &str) -> Option<Self> {
-        match name {
-            "spatial" => Some(Self::Spatial),
-            "scrolling" => Some(Self::Scrolling),
-            "tiling" => Some(Self::Tiling),
-            "stacking" => Some(Self::Stacking),
-            _ => None,
-        }
-    }
-    /// Returns the stable configuration-table name for this profile.
-    #[must_use]
-    pub const fn config_name(self) -> &'static str {
-        match self {
-            Self::Spatial => "spatial",
-            Self::Scrolling => "scrolling",
-            Self::Tiling => "tiling",
-            Self::Stacking => "stacking",
-        }
-    }
-}
 
-/// Immutable data passed into a profile calculation.
+/// Immutable data passed into one layout calculation.
 #[derive(Clone, Debug)]
 pub struct LayoutInput<'a> {
     pub windows: &'a [WindowId],
@@ -138,413 +142,254 @@ pub struct LayoutInput<'a> {
     pub existing: &'a BTreeMap<WindowId, Rect>,
     pub focused: Option<WindowId>,
 }
-
-/// A profile computes world rectangles without observing protocol or renderer state.
+/// An external layout provider that only returns world-space geometry.
 pub trait LayoutEngine {
-    fn profile(&self) -> LayoutProfile;
+    /// Returns the opaque ID selected by configuration.
+    fn id(&self) -> &LayoutId;
+    /// Calculates one rectangle for every supplied window.
     fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect>;
 }
 
-/// Preserves explicit world rectangles and gives new windows a centered default.
-#[derive(Debug, Default)]
-pub struct SpatialLayout;
-impl LayoutEngine for SpatialLayout {
-    fn profile(&self) -> LayoutProfile {
-        LayoutProfile::Spatial
-    }
-    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
-        input
-            .windows
-            .iter()
-            .enumerate()
-            .map(|(index, id)| {
-                (
-                    *id,
-                    input.existing.get(id).copied().unwrap_or_else(|| {
-                        Rect::new(
-                            input.bounds.x - 320.0 + index as f64 * 32.0,
-                            input.bounds.y - 240.0 + index as f64 * 32.0,
-                            640.0,
-                            480.0,
-                        )
-                        .expect("constant rectangle")
-                    }),
-                )
-            })
-            .collect()
-    }
+/// Generic last-resort placement for any unavailable or failing provider.
+///
+/// It preserves valid existing geometry and cascades newly seen windows. It
+/// deliberately contains no policy tied to a shipped layout name.
+#[derive(Clone, Debug)]
+pub struct RecoveryLayout {
+    id: LayoutId,
 }
-/// Arranges windows in an infinite horizontal ribbon of columns.
-#[derive(Debug, Default)]
-pub struct ScrollingLayout;
-impl LayoutEngine for ScrollingLayout {
-    fn profile(&self) -> LayoutProfile {
-        LayoutProfile::Scrolling
-    }
-    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
-        input
-            .windows
-            .iter()
-            .enumerate()
-            .map(|(index, id)| {
-                (
-                    *id,
-                    Rect::new(
-                        input.bounds.x + index as f64 * input.bounds.width,
-                        input.bounds.y,
-                        input.bounds.width,
-                        input.bounds.height,
-                    )
-                    .expect("derived rectangle"),
-                )
-            })
-            .collect()
-    }
-}
-/// Arranges a master pane plus an equal vertical stack.
-#[derive(Clone, Copy, Debug)]
-pub struct TilingLayout {
-    master_ratio: f64,
-    gap: f64,
-}
-impl Default for TilingLayout {
-    fn default() -> Self {
-        Self {
-            master_ratio: 0.5,
-            gap: 0.0,
-        }
-    }
-}
-impl TilingLayout {
-    /// Creates a master-stack layout with a positive inner gap.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the ratio is outside `(0, 1)` or either setting
-    /// is non-finite, or when the gap is negative.
-    pub fn new(master_ratio: f64, gap: f64) -> Result<Self, TilingLayoutError> {
-        if !master_ratio.is_finite() || master_ratio <= 0.0 || master_ratio >= 1.0 {
-            return Err(TilingLayoutError::InvalidMasterRatio);
-        }
-        if !gap.is_finite() || gap < 0.0 {
-            return Err(TilingLayoutError::InvalidGap);
-        }
-        Ok(Self { master_ratio, gap })
-    }
-
-    /// Returns the fraction of available width allocated to the master pane.
+impl RecoveryLayout {
+    /// Creates recovery placement for an arbitrary configured layout ID.
     #[must_use]
-    pub const fn master_ratio(self) -> f64 {
-        self.master_ratio
-    }
-
-    /// Returns the requested gap between adjacent panes.
-    #[must_use]
-    pub const fn gap(self) -> f64 {
-        self.gap
+    pub fn new(id: LayoutId) -> Self {
+        Self { id }
     }
 }
-/// Invalid native master-stack layout settings.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TilingLayoutError {
-    InvalidMasterRatio,
-    InvalidGap,
-}
-impl std::fmt::Display for TilingLayoutError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidMasterRatio => {
-                formatter.write_str("master ratio must be finite and in (0, 1)")
-            }
-            Self::InvalidGap => formatter.write_str("gap must be finite and non-negative"),
-        }
-    }
-}
-impl std::error::Error for TilingLayoutError {}
-impl LayoutEngine for TilingLayout {
-    fn profile(&self) -> LayoutProfile {
-        LayoutProfile::Tiling
-    }
-    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
-        let n = input.windows.len();
-        if n <= 1 {
-            return input
-                .windows
-                .iter()
-                .copied()
-                .map(|window| (window, input.bounds))
-                .collect();
-        }
-        let horizontal_gap = self.gap.min(input.bounds.width / 3.0);
-        let available_width = input.bounds.width - horizontal_gap;
-        let master_width = available_width * self.master_ratio;
-        let stack_width = available_width - master_width;
-        let stack_count = n - 1;
-        let vertical_gap = if stack_count <= 1 {
-            0.0
-        } else {
-            self.gap
-                .min(input.bounds.height / (2.0 * stack_count as f64))
-        };
-        let stack_height =
-            (input.bounds.height - vertical_gap * (stack_count - 1) as f64) / stack_count as f64;
-        input
-            .windows
-            .iter()
-            .enumerate()
-            .map(|(i, id)| {
-                let r = if i == 0 {
-                    Rect::new(
-                        input.bounds.x,
-                        input.bounds.y,
-                        master_width,
-                        input.bounds.height,
-                    )
-                    .expect("master")
-                } else {
-                    Rect::new(
-                        input.bounds.x + master_width + horizontal_gap,
-                        input.bounds.y + (i - 1) as f64 * (stack_height + vertical_gap),
-                        stack_width,
-                        stack_height,
-                    )
-                    .expect("stack")
-                };
-                (*id, r)
-            })
-            .collect()
-    }
-}
-/// Preserves manually controlled rectangles and cascades new windows.
-#[derive(Debug, Default)]
-pub struct StackingLayout;
-impl LayoutEngine for StackingLayout {
-    fn profile(&self) -> LayoutProfile {
-        LayoutProfile::Stacking
+impl LayoutEngine for RecoveryLayout {
+    fn id(&self) -> &LayoutId {
+        &self.id
     }
     fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
         input
             .windows
             .iter()
             .enumerate()
-            .map(|(i, id)| {
-                (
-                    *id,
-                    input.existing.get(id).copied().unwrap_or_else(|| {
-                        Rect::new(
-                            input.bounds.x + 40.0 + i as f64 * 24.0,
-                            input.bounds.y + 40.0 + i as f64 * 24.0,
-                            input.bounds.width * 0.7,
-                            input.bounds.height * 0.7,
-                        )
-                        .expect("cascade")
-                    }),
-                )
+            .map(|(index, window)| {
+                let offset = index as f64 * 24.0;
+                let geometry = input.existing.get(window).copied().unwrap_or_else(|| {
+                    Rect::new(
+                        input.bounds.x + offset,
+                        input.bounds.y + offset,
+                        (input.bounds.width * 0.7).max(f64::MIN_POSITIVE),
+                        (input.bounds.height * 0.7).max(f64::MIN_POSITIVE),
+                    )
+                    .expect("derived recovery rectangle")
+                });
+                (*window, geometry)
             })
             .collect()
     }
 }
 
-/// Returns the built-in safe provider for a profile when a future Lua provider fails.
-#[must_use]
-pub fn builtin(profile: LayoutProfile) -> Box<dyn LayoutEngine> {
-    match profile {
-        LayoutProfile::Spatial => Box::new(SpatialLayout),
-        LayoutProfile::Scrolling => Box::new(ScrollingLayout),
-        LayoutProfile::Tiling => Box::new(TilingLayout::default()),
-        LayoutProfile::Stacking => Box::new(StackingLayout),
-    }
-}
-
-/// A restricted external Lua layout provider with a native fallback.
+/// A restricted external Lua layout provider with generic recovery placement.
 #[derive(Clone, Debug)]
 pub struct LuaLayout {
-    profile: LayoutProfile,
+    id: LayoutId,
     source: String,
     limits: ScriptLimits,
 }
-
-/// Profile providers selected from a validated configuration candidate.
-///
-/// Files that cannot be read are omitted. Callers receive the independent
-/// native provider for an omitted profile, so a broken provider never blocks
-/// the other profiles.
-#[derive(Clone, Debug, Default)]
-pub struct LayoutProviders {
-    providers: BTreeMap<LayoutProfile, LuaLayout>,
-}
-impl LayoutProviders {
-    /// Loads recognized profile files from canonical configuration paths.
-    #[must_use]
-    pub fn from_profile_paths(profile_paths: &BTreeMap<String, std::path::PathBuf>) -> Self {
-        let mut providers = BTreeMap::new();
-        for profile in [
-            LayoutProfile::Spatial,
-            LayoutProfile::Scrolling,
-            LayoutProfile::Tiling,
-            LayoutProfile::Stacking,
-        ] {
-            if let Some(path) = profile_paths.get(profile.config_name())
-                && let Ok(provider) = LuaLayout::from_file(profile, path)
-            {
-                providers.insert(profile, provider);
-            }
-        }
-        Self { providers }
-    }
-
-    /// Returns the configured provider or the safe native provider for one profile.
-    #[must_use]
-    pub fn provider(&self, profile: LayoutProfile) -> Box<dyn LayoutEngine> {
-        self.providers
-            .get(&profile)
-            .cloned()
-            .map_or_else(|| builtin(profile), |provider| Box::new(provider))
-    }
-
-    /// Reports whether a profile has a readable configured provider.
-    #[must_use]
-    pub fn is_configured(&self, profile: LayoutProfile) -> bool {
-        self.providers.contains_key(&profile)
-    }
-}
 impl LuaLayout {
-    /// Loads a profile source file.
+    /// Loads a provider source file.
     ///
     /// # Errors
     ///
-    /// Returns an I/O failure when the profile file cannot be read.
-    pub fn from_file(
-        profile: LayoutProfile,
-        path: impl AsRef<Path>,
-    ) -> Result<Self, std::io::Error> {
-        Ok(Self {
-            profile,
-            source: fs::read_to_string(path)?,
-            limits: ScriptLimits::default(),
-        })
+    /// Returns an I/O failure when the provider file cannot be read.
+    pub fn from_file(id: LayoutId, path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+        Self::from_file_with_limits(id, path, ScriptLimits::default())
     }
-    /// Loads a profile source file with explicit callback resource limits.
+    /// Loads a provider source file with explicit callback resource limits.
     ///
     /// # Errors
     ///
-    /// Returns an I/O failure when the profile file cannot be read.
+    /// Returns an I/O failure when the provider file cannot be read.
     pub fn from_file_with_limits(
-        profile: LayoutProfile,
+        id: LayoutId,
         path: impl AsRef<Path>,
         limits: ScriptLimits,
     ) -> Result<Self, std::io::Error> {
         Ok(Self {
-            profile,
+            id,
             source: fs::read_to_string(path)?,
             limits,
         })
     }
     fn calculate_lua(&self, input: &LayoutInput<'_>) -> Result<BTreeMap<WindowId, Rect>, String> {
-        let lua = Lua::new_with(
-            StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8,
-            LuaOptions::default(),
-        )
-        .map_err(|e| e.to_string())?;
-        lua.set_memory_limit(self.limits.memory_bytes)
-            .map_err(|e| e.to_string())?;
-        let remaining = Rc::new(RefCell::new(self.limits.instruction_limit));
-        lua.set_hook(
-            HookTriggers::new().every_nth_instruction(1_000),
-            move |_, _| {
-                let mut remaining = remaining.borrow_mut();
-                if *remaining < 1_000 {
-                    return Err(LuaError::RuntimeError(
-                        "Horyzond Lua instruction limit exceeded".to_owned(),
-                    ));
-                }
-                *remaining -= 1_000;
-                Ok(VmState::Continue)
-            },
-        )
-        .map_err(|e| e.to_string())?;
-        lua.load(&self.source).exec().map_err(|e| e.to_string())?;
-        validate_layout_contract(&lua, self.profile)?;
-        let calculate: mlua::Function =
-            lua.globals().get("calculate").map_err(|e| e.to_string())?;
-        let windows = lua.create_table().map_err(|e| e.to_string())?;
-        for (index, id) in input.windows.iter().enumerate() {
-            let window = lua.create_table().map_err(|e| e.to_string())?;
-            window.set("id", id.get()).map_err(|e| e.to_string())?;
-            if let Some(rect) = input.existing.get(id) {
-                window.set("x", rect.x).map_err(|e| e.to_string())?;
-                window.set("y", rect.y).map_err(|e| e.to_string())?;
-                window.set("width", rect.width).map_err(|e| e.to_string())?;
+        let lua = restricted_lua(self.limits)?;
+        lua.load(&self.source)
+            .exec()
+            .map_err(|error| error.to_string())?;
+        validate_layout_contract(&lua, &self.id)?;
+        let calculate: mlua::Function = lua
+            .globals()
+            .get("calculate")
+            .map_err(|error| error.to_string())?;
+        let windows = lua.create_table().map_err(|error| error.to_string())?;
+        for (index, window_id) in input.windows.iter().enumerate() {
+            let window = lua.create_table().map_err(|error| error.to_string())?;
+            window
+                .set("id", window_id.get())
+                .map_err(|error| error.to_string())?;
+            if let Some(rect) = input.existing.get(window_id) {
+                window.set("x", rect.x).map_err(|error| error.to_string())?;
+                window.set("y", rect.y).map_err(|error| error.to_string())?;
+                window
+                    .set("width", rect.width)
+                    .map_err(|error| error.to_string())?;
                 window
                     .set("height", rect.height)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|error| error.to_string())?;
             }
-            windows.set(index + 1, window).map_err(|e| e.to_string())?;
+            windows
+                .set(index + 1, window)
+                .map_err(|error| error.to_string())?;
         }
-        let bounds = rectangle_table(&lua, input.bounds)?;
-        let camera = lua.create_table().map_err(|e| e.to_string())?;
         let result: Table = calculate
-            .call((windows, bounds, camera))
-            .map_err(|e| e.to_string())?;
+            .call((
+                windows,
+                rectangle_table(&lua, input.bounds)?,
+                lua.create_table().map_err(|error| error.to_string())?,
+            ))
+            .map_err(|error| error.to_string())?;
         let mut output = BTreeMap::new();
-        for id in input.windows {
-            let value: Value = result.get(id.get()).map_err(|e| e.to_string())?;
+        for window_id in input.windows {
+            let value: Value = result
+                .get(window_id.get())
+                .map_err(|error| error.to_string())?;
             let Value::Table(table) = value else {
-                return Err(format!("missing rectangle for {id}"));
+                return Err(format!("missing rectangle for {window_id}"));
             };
-            output.insert(*id, read_rect(&table)?);
+            output.insert(*window_id, read_rect(&table)?);
         }
         Ok(output)
     }
 }
+impl LayoutEngine for LuaLayout {
+    fn id(&self) -> &LayoutId {
+        &self.id
+    }
+    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
+        self.calculate_lua(input)
+            .unwrap_or_else(|_| RecoveryLayout::new(self.id.clone()).calculate(input))
+    }
+}
 
-fn validate_layout_contract(lua: &Lua, profile: LayoutProfile) -> Result<(), String> {
-    let contract: Table = lua.globals().get("layout").map_err(|e| e.to_string())?;
-    let api_version: u64 = contract.get("api_version").map_err(|e| e.to_string())?;
+/// Provider files selected from a validated configuration candidate.
+#[derive(Clone, Debug, Default)]
+pub struct LayoutProviders {
+    providers: BTreeMap<LayoutId, LuaLayout>,
+}
+impl LayoutProviders {
+    /// Loads every named provider from canonical configuration paths.
+    #[must_use]
+    pub fn from_layout_paths(layout_paths: &BTreeMap<String, PathBuf>) -> Self {
+        let providers = layout_paths
+            .iter()
+            .filter_map(|(name, path)| {
+                let id = LayoutId::new(name.clone()).ok()?;
+                LuaLayout::from_file(id.clone(), path)
+                    .ok()
+                    .map(|provider| (id, provider))
+            })
+            .collect();
+        Self { providers }
+    }
+    /// Returns the selected provider or generic recovery placement.
+    #[must_use]
+    pub fn provider(&self, id: &LayoutId) -> Box<dyn LayoutEngine> {
+        self.providers.get(id).cloned().map_or_else(
+            || Box::new(RecoveryLayout::new(id.clone())) as Box<dyn LayoutEngine>,
+            |provider| Box::new(provider),
+        )
+    }
+    /// Reports whether a readable provider exists for an opaque layout ID.
+    #[must_use]
+    pub fn is_configured(&self, id: &LayoutId) -> bool {
+        self.providers.contains_key(id)
+    }
+}
+
+fn restricted_lua(limits: ScriptLimits) -> Result<Lua, String> {
+    let lua = Lua::new_with(
+        StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8,
+        LuaOptions::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    lua.set_memory_limit(limits.memory_bytes)
+        .map_err(|error| error.to_string())?;
+    let remaining = Rc::new(RefCell::new(limits.instruction_limit));
+    lua.set_hook(
+        HookTriggers::new().every_nth_instruction(1_000),
+        move |_, _| {
+            let mut remaining = remaining.borrow_mut();
+            if *remaining < 1_000 {
+                return Err(LuaError::RuntimeError(
+                    "Horyzond Lua instruction limit exceeded".to_owned(),
+                ));
+            }
+            *remaining -= 1_000;
+            Ok(VmState::Continue)
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(lua)
+}
+fn validate_layout_contract(lua: &Lua, id: &LayoutId) -> Result<(), String> {
+    let contract: Table = lua
+        .globals()
+        .get("layout")
+        .map_err(|error| error.to_string())?;
+    let api_version: u64 = contract
+        .get("api_version")
+        .map_err(|error| error.to_string())?;
     if api_version != 1 {
         return Err(format!("unsupported layout API version {api_version}"));
     }
-    let declared_profile: String = contract.get("profile").map_err(|e| e.to_string())?;
-    if declared_profile != profile.config_name() {
+    let declared_id: String = contract.get("id").map_err(|error| error.to_string())?;
+    if declared_id != id.as_str() {
         return Err(format!(
-            "layout profile '{declared_profile}' does not match '{}'",
-            profile.config_name()
+            "layout ID '{declared_id}' does not match configured ID '{id}'"
         ));
     }
     Ok(())
 }
-impl LayoutEngine for LuaLayout {
-    fn profile(&self) -> LayoutProfile {
-        self.profile
-    }
-    fn calculate(&self, input: &LayoutInput<'_>) -> BTreeMap<WindowId, Rect> {
-        self.calculate_lua(input)
-            .unwrap_or_else(|_| builtin(self.profile).calculate(input))
-    }
-}
 fn rectangle_table(lua: &Lua, rect: Rect) -> Result<Table, String> {
-    let table = lua.create_table().map_err(|e| e.to_string())?;
-    table.set("x", rect.x).map_err(|e| e.to_string())?;
-    table.set("y", rect.y).map_err(|e| e.to_string())?;
-    table.set("width", rect.width).map_err(|e| e.to_string())?;
+    let table = lua.create_table().map_err(|error| error.to_string())?;
+    table.set("x", rect.x).map_err(|error| error.to_string())?;
+    table.set("y", rect.y).map_err(|error| error.to_string())?;
+    table
+        .set("width", rect.width)
+        .map_err(|error| error.to_string())?;
     table
         .set("height", rect.height)
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
     Ok(table)
 }
 fn read_rect(table: &Table) -> Result<Rect, String> {
     Rect::new(
-        table.get("x").map_err(|e| e.to_string())?,
-        table.get("y").map_err(|e| e.to_string())?,
-        table.get("width").map_err(|e| e.to_string())?,
-        table.get("height").map_err(|e| e.to_string())?,
+        table.get("x").map_err(|error| error.to_string())?,
+        table.get("y").map_err(|error| error.to_string())?,
+        table.get("width").map_err(|error| error.to_string())?,
+        table.get("height").map_err(|error| error.to_string())?,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn id(value: &str) -> LayoutId {
+        LayoutId::new(value).expect("ID")
+    }
     fn input<'a>(ids: &'a [WindowId], existing: &'a BTreeMap<WindowId, Rect>) -> LayoutInput<'a> {
         LayoutInput {
             windows: ids,
@@ -553,73 +398,54 @@ mod tests {
             focused: None,
         }
     }
-    #[test]
-    fn profiles_produce_valid_rectangles() {
-        let ids = [WindowId::new(1), WindowId::new(2), WindowId::new(3)];
-        let existing = BTreeMap::new();
-        for profile in [
-            LayoutProfile::Spatial,
-            LayoutProfile::Scrolling,
-            LayoutProfile::Tiling,
-            LayoutProfile::Stacking,
-        ] {
-            assert_eq!(builtin(profile).calculate(&input(&ids, &existing)).len(), 3);
-        }
+    fn source(name: &str, body: &str) -> String {
+        format!("layout = {{ api_version = 1, id = '{name}' }} {body}")
     }
     #[test]
-    fn tiling_has_no_overlap_in_stack() {
-        let ids = [WindowId::new(1), WindowId::new(2), WindowId::new(3)];
-        let existing = BTreeMap::new();
-        let result = TilingLayout::default().calculate(&input(&ids, &existing));
-        assert!((result[&ids[0]].width - 50.).abs() < f64::EPSILON);
-        assert!((result[&ids[1]].height - 50.).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn tiling_options_apply_master_ratio_and_gaps() {
-        let ids = [WindowId::new(1), WindowId::new(2), WindowId::new(3)];
-        let existing = BTreeMap::new();
-        let layout = TilingLayout::new(0.6, 10.0).expect("options");
-        let result = layout.calculate(&input(&ids, &existing));
-        assert!((layout.master_ratio() - 0.6).abs() < f64::EPSILON);
-        assert!((layout.gap() - 10.0).abs() < f64::EPSILON);
-        assert!((result[&ids[0]].width - 54.0).abs() < f64::EPSILON);
-        assert!((result[&ids[1]].x - 64.0).abs() < f64::EPSILON);
-        assert!((result[&ids[1]].height - 45.0).abs() < f64::EPSILON);
-        assert!((result[&ids[2]].y - 55.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn tiling_options_reject_invalid_values() {
-        assert!(TilingLayout::new(0.0, 0.0).is_err());
-        assert!(TilingLayout::new(1.0, 0.0).is_err());
-        assert!(TilingLayout::new(0.5, -1.0).is_err());
-    }
-    #[test]
-    fn lua_provider_returns_validated_geometry() {
+    fn arbitrary_ids_are_valid_without_builtin_registration() {
+        let custom = id("my-own-layout");
         let ids = [WindowId::new(1)];
         let existing = BTreeMap::new();
-        let layout = LuaLayout { profile: LayoutProfile::Spatial, source: "layout = { api_version = 1, profile = 'spatial' } function calculate(windows, bounds, camera) return { [1] = { x = 7, y = 8, width = 9, height = 10 } } end".to_owned(), limits: ScriptLimits::default() };
-        let result = layout.calculate(&input(&ids, &existing));
-        assert!((result[&ids[0]].x - 7.0).abs() < f64::EPSILON);
+        assert_eq!(RecoveryLayout::new(custom.clone()).id(), &custom);
+        assert_eq!(
+            RecoveryLayout::new(custom)
+                .calculate(&input(&ids, &existing))
+                .len(),
+            1
+        );
     }
     #[test]
-    fn invalid_lua_geometry_uses_builtin_fallback() {
+    fn lua_provider_uses_opaque_configured_id() {
         let ids = [WindowId::new(1)];
         let existing = BTreeMap::new();
         let layout = LuaLayout {
-            profile: LayoutProfile::Tiling,
-            source:
-                "layout = { api_version = 1, profile = 'tiling' } function calculate() return { [1] = { x = 0, y = 0, width = 0, height = 1 } } end"
-                    .to_owned(),
+            id: id("third-party"),
+            source: source(
+                "third-party",
+                "function calculate() return { [1] = { x = 7, y = 8, width = 9, height = 10 } } end",
+            ),
             limits: ScriptLimits::default(),
         };
-        let result = layout.calculate(&input(&ids, &existing));
-        assert!((result[&ids[0]].width - 100.0).abs() < f64::EPSILON);
+        assert!((layout.calculate(&input(&ids, &existing))[&ids[0]].x - 7.).abs() < f64::EPSILON);
     }
-
     #[test]
-    fn configured_provider_is_selected_by_profile_name() {
+    fn invalid_lua_geometry_uses_generic_recovery() {
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        let layout = LuaLayout {
+            id: id("broken"),
+            source: source(
+                "broken",
+                "function calculate() return { [1] = { x = 0, y = 0, width = 0, height = 1 } } end",
+            ),
+            limits: ScriptLimits::default(),
+        };
+        assert!(
+            (layout.calculate(&input(&ids, &existing))[&ids[0]].width - 70.).abs() < f64::EPSILON
+        );
+    }
+    #[test]
+    fn provider_map_discovers_an_unlisted_custom_layout() {
         let root = std::env::temp_dir().join(format!(
             "horyzond-layout-test-{}",
             std::time::SystemTime::now()
@@ -628,111 +454,65 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).expect("root");
-        let provider = root.join("spatial.lua");
+        let path = root.join("custom.lua");
         fs::write(
-            &provider,
-            "layout = { api_version = 1, profile = 'spatial' } function calculate() return { [1] = { x = 11, y = 12, width = 13, height = 14 } } end",
+            &path,
+            source(
+                "custom-grid",
+                "function calculate() return { [1] = { x = 1, y = 2, width = 3, height = 4 } } end",
+            ),
         )
         .expect("provider");
-        let providers = LayoutProviders::from_profile_paths(&BTreeMap::from([(
-            "spatial".to_owned(),
-            provider,
-        )]));
+        let providers =
+            LayoutProviders::from_layout_paths(&BTreeMap::from([("custom-grid".to_owned(), path)]));
+        let layout_id = id("custom-grid");
         let ids = [WindowId::new(1)];
         let existing = BTreeMap::new();
-        assert!(providers.is_configured(LayoutProfile::Spatial));
-        assert!(!providers.is_configured(LayoutProfile::Tiling));
+        assert!(providers.is_configured(&layout_id));
         assert!(
             (providers
-                .provider(LayoutProfile::Spatial)
+                .provider(&layout_id)
                 .calculate(&input(&ids, &existing))[&ids[0]]
                 .x
-                - 11.0)
+                - 1.)
                 .abs()
                 < f64::EPSILON
         );
-        assert_eq!(
-            providers
-                .provider(LayoutProfile::Tiling)
-                .calculate(&input(&ids, &existing))[&ids[0]],
-            Rect::new(0., 0., 100., 100.).expect("bounds")
-        );
         fs::remove_dir_all(root).expect("cleanup");
     }
-
     #[test]
-    fn timed_out_provider_uses_native_fallback() {
+    fn timed_out_provider_uses_recovery() {
         let ids = [WindowId::new(1)];
         let existing = BTreeMap::new();
         let layout = LuaLayout {
-            profile: LayoutProfile::Tiling,
-            source: "layout = { api_version = 1, profile = 'tiling' } function calculate() while true do end end".to_owned(),
+            id: id("loop"),
+            source: source("loop", "function calculate() while true do end end"),
             limits: ScriptLimits {
                 memory_bytes: 1024 * 1024,
                 instruction_limit: 1_000,
             },
         };
-        let result = layout.calculate(&input(&ids, &existing));
-        assert_eq!(
-            result[&ids[0]],
-            Rect::new(0., 0., 100., 100.).expect("bounds")
-        );
+        assert_eq!(layout.calculate(&input(&ids, &existing)).len(), 1);
     }
-
     #[test]
     fn layout_state_round_trips_without_provider_code() {
+        let custom = id("custom");
         let state = LayoutState::new(
-            LayoutProfile::Spatial,
+            custom.clone(),
             BTreeMap::from([(
-                LayoutProfile::Spatial,
-                BTreeMap::from([(
-                    WindowId::new(7),
-                    Rect::new(1.0, 2.0, 3.0, 4.0).expect("rect"),
-                )]),
+                custom,
+                BTreeMap::from([(WindowId::new(7), Rect::new(1., 2., 3., 4.).expect("rect"))]),
             )]),
         );
         let json = state.to_json().expect("encode");
         assert!(!json.contains("function"));
         assert_eq!(LayoutState::from_json(&json).expect("decode"), state);
     }
-
     #[test]
     fn layout_state_rejects_unknown_format_versions() {
-        let error = LayoutState::from_json(
-            r#"{"version":99,"active_profile":"Spatial","profile_geometry":{}}"#,
-        )
-        .expect_err("unsupported version");
-        assert!(matches!(error, LayoutStateError::UnsupportedVersion(99)));
-    }
-
-    #[test]
-    fn shipped_lua_contracts_match_canonical_profile_names() {
-        let empty = [];
-        let existing = BTreeMap::new();
-        for (profile, source) in [
-            (
-                LayoutProfile::Spatial,
-                include_str!("../../../config/layouts/spatial.lua"),
-            ),
-            (
-                LayoutProfile::Scrolling,
-                include_str!("../../../config/layouts/scrolling.lua"),
-            ),
-            (
-                LayoutProfile::Tiling,
-                include_str!("../../../config/layouts/tiling.lua"),
-            ),
-            (
-                LayoutProfile::Stacking,
-                include_str!("../../../config/layouts/stacking.lua"),
-            ),
-        ] {
-            let layout = LuaLayout {
-                profile,
-                source: source.to_owned(),
-                limits: ScriptLimits::default(),
-            };
-            assert!(layout.calculate_lua(&input(&empty, &existing)).is_ok());
-        }
+        assert!(matches!(
+            LayoutState::from_json(r#"{"version":99,"active_layout":"custom","geometry":{}}"#),
+            Err(LayoutStateError::UnsupportedVersion(99))
+        ));
     }
 }

@@ -9,7 +9,7 @@ use wm_backend_headless::HeadlessBackend;
 use wm_config::{ConfigManager, ConfigPath, ReloadOutcome, install_defaults};
 use wm_core::CoreState;
 use wm_diagnostics::{LogLevel, SessionId, SessionLogger, install_panic_hook};
-use wm_layout::{LayoutProfile, LayoutProviders};
+use wm_layout::{LayoutId, LayoutProviders};
 use wm_render::{RecordingRenderer, Renderer};
 use wm_script::ScriptLimits;
 use wm_types::{OutputInfo, Rect};
@@ -54,20 +54,18 @@ fn main() {
     if let ReloadOutcome::Rejected { diagnostic } = configuration.load_initial() {
         exit_with_error(&format!("initial configuration rejected: {diagnostic}"));
     }
-    let profile = configuration
-        .default_profile()
-        .and_then(LayoutProfile::from_config_name)
-        .unwrap_or(LayoutProfile::Spatial);
-    let providers = LayoutProviders::from_profile_paths(
+    let layout = LayoutId::new(configuration.default_layout().unwrap_or("default"))
+        .expect("configuration loader accepts non-empty layout names");
+    let providers = LayoutProviders::from_layout_paths(
         configuration
-            .profile_paths()
+            .layout_paths()
             .expect("successful configuration load has an active candidate"),
     );
-    let configured_provider = providers.is_configured(profile);
+    let configured_provider = providers.is_configured(&layout);
     let mut core = CoreState::default();
-    core.set_configured_layout_profile(
-        profile,
-        &providers,
+    let provider = providers.provider(&layout);
+    core.apply_layout(
+        provider.as_ref(),
         Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds"),
     );
     if let Err(error) = logger.record(
@@ -75,7 +73,7 @@ fn main() {
         "layout",
         &format!(
             "selected {} profile with {} provider",
-            profile.config_name(),
+            layout,
             if configured_provider {
                 "configured Lua"
             } else {
@@ -92,9 +90,9 @@ fn main() {
     }
 
     println!(
-        "Horyzond headless runtime is ready: {} output(s), {} profile, renderer capabilities: {:?}",
+        "Horyzond headless runtime is ready: {} output(s), {} layout, renderer capabilities: {:?}",
         backend.outputs().len(),
-        profile.config_name(),
+        layout,
         renderer.capabilities()
     );
     if let Err(error) = logger.close() {

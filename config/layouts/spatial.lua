@@ -1,4 +1,4 @@
-layout = { name = "spatial", profile = "spatial", api_version = 1 }
+layout = { id = "spatial", api_version = 1 }
 
 -- Keep persistent world-space geometry. The scene camera performs projection.
 function calculate(windows, _bounds, _camera)

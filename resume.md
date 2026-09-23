@@ -2,11 +2,11 @@
 
 Last completed phase: **P3 — Headless runtime, workspace state, camera, and scene**. P4 is actively in progress.
 
-Last completed step: `feat(p4): add tiling layout options`.
+Last completed step: `refactor(p4): make layouts provider-defined`.
 
 ## Resume next
 
-Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has independent native recovery engines and `LuaLayout` executes versioned profile contracts with memory and instruction limits, validates their rectangles, and falls back safely; `wm-core` has multiple independent workspaces and applies the selected provider through `LayoutProviders`. Layout state is versioned JSON containing only active profile and profile geometry; it rejects unknown versions, discards unmapped windows during restore, and can reapply a new provider while preserving compatible data. STACKING has an explicit raise operation whose paint order remains independent from focus, and TILING has validated master ratio and gap options in both native fallback and Lua configuration. Next, implement the missing profile-specific state and behavior: SPATIAL navigation/camera intent, STACKING transient layers, TILING split trees and floating/fullscreen exceptions, and SCROLLING columns/rows/reveal policy.
+Continue **P4 — Provider-defined layouts**. `wm-core` stores only opaque `LayoutId` values and calls the neutral `LayoutEngine` contract. `wm-layout` discovers arbitrary Lua provider IDs from configuration, enforces bounded versioned contracts, and falls back to generic recovery placement without recognizing any shipped layout name. The bundled Lua files are examples only. Next, update the detailed plan and remaining documentation to remove profile-specific implementation assumptions, then add provider-defined state extensions and runtime reload wiring.
 
 ## Phase checklist
 
@@ -16,7 +16,7 @@ Continue **P4 — Four independent Lua layout profiles**. `wm-layout` has indepe
 | P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
-| P4 | In progress | Native fallback engines, versioned Lua contracts, and a restricted validated `LuaLayout` runtime cover SPATIAL, SCROLLING, TILING, and STACKING; active-profile application, per-profile geometry retention, independent multi-workspace scenes, STACKING's explicit paint order, and TILING master ratio/gap options are wired into core. Configuration resolves and watches canonical provider paths, and the composition root selects a configured provider or independent native fallback. Versioned data-only JSON state and compatible provider migration are implemented. Profile-specific interaction and placement state remain. |
+| P4 | In progress | The core stores opaque layout IDs and speaks only the neutral layout contract. Configuration discovers any named Lua provider, while the runtime validates its version, bounds it, and uses generic recovery placement if it fails. The shipped Lua files are defaults/examples, not WM-defined layout types. Provider-defined state extensions and runtime reload integration remain. |
 | P5 | Not started | Modal input, rules, hooks, versioned IPC, and `horyctl`. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
