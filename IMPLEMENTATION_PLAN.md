@@ -9,7 +9,7 @@ This plan develops [horyzondRust-architecture.md](horyzondRust-architecture.md) 
 - Implement a Rust window manager and compositor with KISS design and independently testable modules.
 - Support independent, runtime-selectable Lua layout providers. Ship SPATIAL, SCROLLING, TILING, and STACKING only as editable examples; the WM core must not recognize their names or behavior.
 - Deliver Wayland and OpenGL first. Preserve explicit extension points for native X11 and Vulkan from P0, without pretending that every backend has identical capabilities.
-- Keep user policy in editable Lua files: settings, bindings, rules, profile algorithms, hooks, and theme declarations. Keep shader source in external shader files referenced by configuration.
+- Keep user policy in editable Lua files: settings, bindings, rules, layout algorithms, hooks, and theme declarations. Keep shader source in external shader files referenced by configuration.
 - Use `~/.config/horyzond/` as the default user directory, exactly as requested. Resolve `~` from the user's home directory, independently of the working directory. A deliberate `--config-dir` override may support testing and additional instances; do not silently redirect the default through `XDG_CONFIG_HOME`.
 - Create the directory and all shipped default configuration files automatically when absent. Never overwrite user edits during normal startup or reload.
 - Support relative `source("file.lua")` imports, nested imports, automatic reload, explicit reload, validation, and rollback without terminating clients.
@@ -35,7 +35,7 @@ Refine the original `DisplayBackend::present(GraphicBuffer)` sketch into separat
 | Window-system adapter | Client lifecycle, input/output events, configure/focus/close operations, capability reporting | Wayland objects, a local GPU, or compositor-owned presentation |
 | Renderer | Import supported content, consume immutable scene snapshots, produce frame results | DRM ownership, Wayland surfaces, GL texture IDs in shared types |
 | Presenter | Acquire render targets, submit frames, report completion, manage output/device timing | One specific graphics API or universal DMA-BUF support |
-| Layout provider | Read normalized window data and produce validated layout updates | Protocol resources, renderer state, IPC transport, or other profile implementations |
+| Layout provider | Read normalized window data and produce validated layout updates | Protocol resources, renderer state, IPC transport, or other layout implementations |
 
 These are conceptual contracts first, not a commitment to overly generic trait signatures. Prove them using headless adapters and a recording renderer before stabilizing interfaces.
 
@@ -69,7 +69,20 @@ Ship readable defaults in `config/` and package the same files with the executab
 
 Do not maintain four feature-complete Lua algorithms plus four feature-complete Rust duplicates. Start with the four Lua providers and one small safe Rust placement fallback. A script failure preserves the last valid result where possible; a new window still receives usable placement. This deliberately simplifies the architecture document's full native fallback proposal.
 
-### 2.6 Initial dependency policy
+### 2.6 Provider-defined layout rule
+
+`wm-core` and `wm-layout` must never contain an enum, match arm, fallback branch, or policy switch for `spatial`, `scrolling`, `tiling`, `stacking`, or any other named layout. The core stores an opaque `LayoutId` and invokes a neutral layout-provider contract. The layout runtime discovers every provider name from `layouts` in the active configuration and validates only the provider protocol: API version, matching opaque ID, resource limits, complete geometry, ordering, and state schema.
+
+The bundled Lua layouts are first-run examples. Users may remove them, rename them, replace them, or add layouts such as `monocle`, `bsp`, or `my_layout` without a Rust code change. The only Rust fallback is generic recovery placement that preserves known valid rectangles and gives new windows usable rectangles. It must not emulate a named layout.
+
+```lua
+settings = { default_layout = "my_layout" }
+layouts = { my_layout = "layouts/my_layout.lua" }
+```
+
+Each provider declares `layout = { id = "my_layout", api_version = 1 }` and implements the documented callbacks. Provider-specific settings, navigation, state, and behavior remain inside that provider's Lua files. The WM validates and applies data; it does not interpret provider semantics.
+
+### 2.7 Initial dependency policy
 
 Prefer maintained building blocks over hand-writing a Wayland protocol stack. Evaluate and pin Smithay behind Wayland/GL adapters, `mlua` with Lua 5.4 for scripting, an event-loop library such as `calloop`, filesystem notifications, and structured tracing. Verify the selected versions and licenses during P0 rather than declaring untested version requirements here.
 
@@ -87,7 +100,7 @@ Create crates when their implementation milestone begins; avoid a workspace full
 | `wm-core` | Lifecycle, workspaces, modes, command ordering, small policy coordinators | Neutral types and injected contracts; no concrete adapters |
 | `wm-config` | Schema, imports, defaults, file watching, configuration transactions | Neutral data and Lua runtime; no backend or renderer |
 | `wm-script` | Bounded Lua runtime and common host API construction | Shared by configuration/layout; no compositor globals |
-| `wm-layout` | Provider contract, profile-state validation, fallback | Neutral types and scripting; no concrete platform/render APIs |
+| `wm-layout` | Generic provider contract, layout-state validation, generic recovery placement | Neutral types and scripting; no concrete platform/render APIs or named layout policies |
 | `wm-scene` | Camera, scene snapshots, picking, damage, visual layers | Neutral types; no GL/Vulkan/Wayland objects |
 | `wm-backend` | Window-system and presentation contracts, capability descriptors | Neutral types |
 | `wm-backend-headless` | Virtual windows/outputs and deterministic event injection | Backend contracts |
@@ -155,13 +168,13 @@ source("theme.lua")
 
 -- Default settings; users can edit these values.
 settings = {
-    default_profile = "spatial",
+    default_layout = "spatial",
     reload = { enabled = true, debounce_ms = 150 },
     logging = { level = "trace", detail = "full" },
 }
 
 modes = source("modes.lua")
-profiles = {
+layouts = {
     spatial = "layouts/spatial.lua",
     scrolling = "layouts/scrolling.lua",
     tiling = "layouts/tiling.lua",
@@ -175,10 +188,10 @@ profiles = {
 - Initially allow imports within the configuration root, including subdirectories. Reject root escapes after path/symlink resolution; document this boundary.
 - Execute each resolved file once per candidate load, cache its return value, and detect import cycles with the complete import chain.
 - A missing import is a candidate error. Diagnostics include filename, line, import chain, and Lua traceback.
-- Build a dependency graph for imported configuration, registered profile scripts, hooks, and referenced shaders.
+- Build a dependency graph for imported configuration, registered layout scripts, hooks, and referenced shaders.
 - Evaluate configuration in a fresh sandbox. No `os`, arbitrary `io`, native module loading, unrestricted `require`, process spawning, or compositor mutations during evaluation. Start with no user-created coroutines unless quotas are enforced for all execution contexts.
 - Launch commands are declarative action data, executed by the coordinator after a user action or a specific lifecycle hook. Reload must never replay autostart automatically.
-- Configuration tables and profile state have explicit schema versions. No compiled-in bindings or application-specific rules beyond documented emergency recovery.
+- Configuration tables and layout state have explicit schema versions. No compiled-in bindings or application-specific rules beyond documented generic emergency recovery.
 
 ### 4.3 Bootstrap and transactional reload
 
@@ -285,20 +298,19 @@ Keep protocol mechanics, frame scheduling, validated state ownership, and numeri
 
 **Exit gate:** synthetic map/focus/move/unmap/output events produce deterministic snapshots; transform round trips and zoomed hit tests pass; closed windows cannot remain focused; two outputs with differing scales are handled; camera movement leaves world geometry intact; the runtime builds without Wayland/GL.
 
-### P4 — Four independent Lua layout profiles
+### P4 — Provider-defined Lua layouts
 
 **Depends on:** P2–P3.
 
 **Work:**
 
 - Implement provider loading, state serialization, bounded callbacks, output validation, last-good behavior, and the minimal Rust recovery placement.
-- P4.1: SPATIAL rectangles, pan/zoom intent, home/overview, and directional navigation.
-- P4.2: STACKING placement, move/resize geometry, focus versus z-order, transient layers, and restore geometry.
-- P4.3: TILING master-stack, configurable gaps/ratios, then split-tree insert/remove/swap/resize. Fullscreen and explicit floating exceptions are modeled separately.
-- P4.4: SCROLLING columns, intra-column rows, widths, reveal-on-focus, reorder, camera offset, and horizontal/vertical policy.
-- Implement per-workspace profile switching and compatible state migration during script reload. Never store Lua closures in persistent state.
+- Define opaque provider IDs, versioned metadata, bounded callbacks, validated output, generic recovery placement, and data-only state migration. Never store Lua closures in persistent state.
+- Ship SPATIAL, STACKING, TILING, and SCROLLING as independent example providers, each with its own Lua state and behavior. Their names and behavior are not part of the Rust API.
+- Allow users to add, remove, rename, and select providers through configuration without recompiling the WM.
+- Implement per-workspace layout selection and compatible state migration during script reload.
 
-**Exit gate:** each profile passes the same lifecycle/contract scenarios plus profile-specific geometry tests; switching through all four preserves clients and profile history; malformed geometry/unknown IDs/script timeouts cannot corrupt the scene; one broken script does not stop other providers.
+**Exit gate:** arbitrary third-party provider IDs pass the same lifecycle/contract scenarios as shipped examples; switching layouts preserves clients and provider state history; malformed geometry/unknown IDs/script timeouts cannot corrupt the scene; one broken provider does not stop other providers.
 
 ### P5 — Modal interaction, rules, hooks, IPC, and CLI
 
