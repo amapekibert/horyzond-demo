@@ -17,7 +17,7 @@ P0 through P4 are implemented. The repository has a modular headless foundation,
 | P2 | Lua configuration, `source()`, validation, live reload | Complete |
 | P3 | Headless core, workspaces, camera, scene | Complete |
 | P4 | Provider-defined layout runtime and recovery | Complete |
-| P5 | Modes, rules, hooks, IPC, `horyctl` | Planned |
+| P5 | Modes, rules, hooks, IPC, `horyctl` | Complete |
 | P6 | Nested Wayland session and OpenGL renderer | Planned |
 | P7 | DRM/KMS, libinput, standalone Wayland | Planned |
 | P8 | Desktop protocols and spatial spawn workflow | Planned |
@@ -79,7 +79,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Preserve JSON-compatible provider state without storing Lua closures.
 - [x] Route opaque provider-defined interactions without hardcoded layout actions.
 - [x] Preserve provider histories and opaque layout selections per workspace.
-- [ ] Build P5 modal input, rules, hooks, and `horyctl` IPC.
+- [x] Build P5 modal input, rules, hooks, and `horyctl` IPC.
 - [x] Add a neutral modal input state machine with safe binding replacement.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
