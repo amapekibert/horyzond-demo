@@ -167,4 +167,17 @@ mod tests {
             Err(IpcError::Json(_))
         ));
     }
+    #[test]
+    fn subscriptions_are_idempotent_and_bounded() {
+        let mut subscriptions = Subscriptions::default();
+        assert!(subscriptions.add("workspace"));
+        assert!(!subscriptions.add("workspace"));
+        for index in 1..MAX_SUBSCRIPTIONS {
+            assert!(subscriptions.add(format!("event-{index}")));
+        }
+        assert_eq!(subscriptions.len(), MAX_SUBSCRIPTIONS);
+        assert!(!subscriptions.add("overflow"));
+        assert!(subscriptions.remove("workspace"));
+        assert!(subscriptions.add("replacement"));
+    }
 }
