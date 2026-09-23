@@ -41,6 +41,8 @@ pub enum RuntimeCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ActionDispatch {
     PendingSpawn,
+    PendingSpawnCancelled { cancelled: bool },
+    LayoutSelected,
     LayoutInteraction,
 }
 
@@ -141,8 +143,10 @@ impl LayoutRuntime {
     /// Commits one configured action without shell interpretation.
     ///
     /// `spawn` records a pending launch using its first argument as the
-    /// executable. Every other non-empty action remains opaque and is routed
-    /// to the active layout provider with a data-only arguments payload.
+    /// executable. `cancel_pending_spawn` cancels that request. `select_layout`
+    /// applies an opaque configured layout ID. Every other non-empty action
+    /// remains opaque and is routed to the active layout provider with a
+    /// data-only arguments payload.
     /// This operation does not evaluate rules, preventing recursive
     /// metadata-trigger loops.
     ///
@@ -166,6 +170,19 @@ impl LayoutRuntime {
             })
             .map_err(ActionDispatchError::PendingSpawn)?;
             return Ok(ActionDispatch::PendingSpawn);
+        }
+        if name == "cancel_pending_spawn" {
+            return Ok(ActionDispatch::PendingSpawnCancelled {
+                cancelled: self.cancel_pending_spawn().is_some(),
+            });
+        }
+        if name == "select_layout" {
+            let layout = arguments
+                .first()
+                .ok_or(ActionDispatchError::MissingLayoutId)?;
+            let layout = LayoutId::new(layout).map_err(ActionDispatchError::LayoutId)?;
+            self.apply(core, &layout, bounds);
+            return Ok(ActionDispatch::LayoutSelected);
         }
         let interaction =
             LayoutInteraction::new(name, serde_json::json!({ "arguments": arguments }))
@@ -295,6 +312,8 @@ impl std::error::Error for PendingSpawnError {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ActionDispatchError {
     Interaction(wm_layout::LayoutInteractionError),
+    LayoutId(wm_layout::LayoutIdError),
+    MissingLayoutId,
     MissingSpawnExecutable,
     PendingSpawn(PendingSpawnError),
 }
@@ -302,6 +321,10 @@ impl fmt::Display for ActionDispatchError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Interaction(error) => error.fmt(formatter),
+            Self::LayoutId(error) => error.fmt(formatter),
+            Self::MissingLayoutId => {
+                formatter.write_str("select_layout action requires a layout ID")
+            }
             Self::MissingSpawnExecutable => {
                 formatter.write_str("spawn action requires an executable argument")
             }
