@@ -409,6 +409,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "wm-rules"
+version = "0.26.0"
+
+[[package]]
 name = "wm-runtime"
 version = "0.26.0"
 dependencies = [

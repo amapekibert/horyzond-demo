@@ -2,7 +2,7 @@
 
 Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `feat(p5): dispatch modal commands`.
+Last completed step: `feat(p5): add deterministic rule engine`.
 
 ## Resume next
 
