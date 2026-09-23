@@ -317,6 +317,44 @@ fn handle_ipc(
             );
             Ok(serde_json::json!({ "workspace": workspace }))
         })(),
+        "input.press" => (|| {
+            let chord = request
+                .params
+                .get("chord")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "input.press requires a string chord parameter".to_owned())?;
+            let outcome = runtime.press(chord);
+            let dispatched = match outcome.command {
+                Some(command) if command.name == "switch_mode" => None,
+                Some(command) => Some(
+                    runtime
+                        .dispatch_action(
+                            core,
+                            &command.name,
+                            &command.arguments,
+                            Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant headless bounds"),
+                        )
+                        .map_err(|error| error.to_string())?,
+                ),
+                None => None,
+            };
+            Ok(serde_json::json!({
+                "consumed": outcome.consumed,
+                "mode": outcome.mode.as_str(),
+                "dispatched": dispatched.map(|value| format!("{value:?}")),
+            }))
+        })(),
+        "input.release" => (|| {
+            let chord = request
+                .params
+                .get("chord")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "input.release requires a string chord parameter".to_owned())?;
+            Ok(serde_json::json!({
+                "consumed": runtime.release(chord),
+                "mode": runtime.mode(),
+            }))
+        })(),
         "layout.select" => (|| {
             let layout = request
                 .params

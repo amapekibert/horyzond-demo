@@ -14,7 +14,8 @@ fn main() {
         || command == "layout"
         || command == "camera"
         || command == "spawn"
-        || command == "workspace")
+        || command == "workspace"
+        || command == "input")
         .then(|| arguments.next())
         .flatten();
     if !((command == "config"
@@ -26,7 +27,9 @@ fn main() {
         || (command == "spawn"
             && matches!(subcommand.as_deref(), Some(value) if value == "pending" || value == "cancel"))
         || (command == "workspace"
-            && subcommand.as_deref() == Some(std::ffi::OsStr::new("switch"))))
+            && subcommand.as_deref() == Some(std::ffi::OsStr::new("switch")))
+        || (command == "input"
+            && matches!(subcommand.as_deref(), Some(value) if value == "press" || value == "release")))
     {
         usage();
     }
@@ -65,6 +68,9 @@ fn main() {
             .parse::<u64>()
             .unwrap_or_else(|_| fail("workspace ID must be an unsigned integer"));
         serde_json::json!({ "workspace": workspace })
+    } else if command == "input" {
+        let chord = arguments.next().unwrap_or_else(|| usage());
+        serde_json::json!({ "chord": chord.to_string_lossy() })
     } else {
         serde_json::Value::Null
     };
@@ -105,6 +111,15 @@ fn main() {
         online(&path, "workspace.switch", params);
         return;
     }
+    if command == "input" {
+        let method = if subcommand.as_deref() == Some(std::ffi::OsStr::new("press")) {
+            "input.press"
+        } else {
+            "input.release"
+        };
+        online(&path, method, params);
+        return;
+    }
     if command == "spawn" {
         if subcommand.as_deref() == Some(std::ffi::OsStr::new("cancel")) {
             online(&path, "spawn.cancel", serde_json::Value::Null);
@@ -142,7 +157,7 @@ fn main() {
 }
 fn usage() -> ! {
     eprintln!(
-        "Usage: horyctl <status|windows|workspaces|workspace switch ID|layout select ID|camera set X Y ZOOM|spawn <pending EXECUTABLE [ARG...]|cancel>|config <check|reload|status>> [--config-dir PATH]"
+        "Usage: horyctl <status|windows|workspaces|workspace switch ID|input <press|release> CHORD|layout select ID|camera set X Y ZOOM|spawn <pending EXECUTABLE [ARG...]|cancel>|config <check|reload|status>> [--config-dir PATH]"
     );
     std::process::exit(2)
 }
