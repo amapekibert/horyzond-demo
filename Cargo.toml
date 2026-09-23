@@ -12,6 +12,7 @@ members = [
     "crates/wm-core",
     "crates/wm-layout",
     "crates/wm-runtime",
+    "crates/wm-input",
 ]
 resolver = "3"
 

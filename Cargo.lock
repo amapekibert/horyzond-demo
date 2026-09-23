@@ -384,6 +384,10 @@ name = "wm-diagnostics"
 version = "0.26.0"
 
 [[package]]
+name = "wm-input"
+version = "0.26.0"
+
+[[package]]
 name = "wm-layout"
 version = "0.26.0"
 dependencies = [

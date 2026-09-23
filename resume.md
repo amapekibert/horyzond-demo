@@ -2,7 +2,7 @@
 
 Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `test(p4): cover provider lifecycle isolation`.
+Last completed step: `feat(p5): add modal input state`.
 
 ## Resume next
 

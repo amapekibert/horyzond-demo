@@ -38,6 +38,7 @@ crates/wm-backend/           Window-system adapter contract
 crates/wm-backend-headless/  Deterministic adapter for tests
 crates/wm-render/            Renderer contract and recording renderer
 crates/wm-runtime/           Safe-boundary configuration and layout coordinator
+crates/wm-input/             Platform-neutral modal binding and consumed-input state
 docs/decisions/              Short architecture decisions
 examples/                    Upstream design references, excluded from the build
 ```
@@ -78,6 +79,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Route opaque provider-defined interactions without hardcoded layout actions.
 - [x] Preserve provider histories and opaque layout selections per workspace.
 - [ ] Build P5 modal input, rules, hooks, and `horyctl` IPC.
+- [x] Add a neutral modal input state machine with safe binding replacement.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow
