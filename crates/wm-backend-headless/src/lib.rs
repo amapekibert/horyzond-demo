@@ -1,8 +1,9 @@
 //! Deterministic virtual outputs and events for tests without graphics or a seat.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
+use std::time::Duration;
 
-use wm_backend::{BackendError, BackendEvent, ConfigureTransaction, WindowSystem};
+use wm_backend::{BackendError, BackendEvent, ConfigureLedger, ConfigureTransaction, WindowSystem};
 use wm_types::{Capabilities, OutputInfo, Rect, WindowId, WindowMetadata};
 
 /// A simple, deterministic backend for core and contract tests.
@@ -11,8 +12,7 @@ pub struct HeadlessBackend {
     outputs: Vec<OutputInfo>,
     events: VecDeque<BackendEvent>,
     mapped_windows: BTreeSet<WindowId>,
-    pending_configures: BTreeMap<WindowId, ConfigureTransaction>,
-    next_configure_serial: u64,
+    configures: ConfigureLedger,
     initialized: bool,
 }
 
@@ -25,8 +25,7 @@ impl HeadlessBackend {
             outputs: outputs.into_iter().collect(),
             events: VecDeque::new(),
             mapped_windows: BTreeSet::new(),
-            pending_configures: BTreeMap::new(),
-            next_configure_serial: 1,
+            configures: ConfigureLedger::default(),
             initialized: false,
         }
     }
@@ -55,7 +54,7 @@ impl HeadlessBackend {
         if !self.mapped_windows.remove(&window) {
             return Err(BackendError::new(format!("{window} is not mapped")));
         }
-        self.pending_configures.remove(&window);
+        self.configures.forget(window);
         self.events.push_back(BackendEvent::WindowUnmapped(window));
         Ok(())
     }
@@ -118,14 +117,7 @@ impl WindowSystem for HeadlessBackend {
     ) -> Result<ConfigureTransaction, BackendError> {
         self.require_initialized()?;
         if self.mapped_windows.contains(&window) {
-            let transaction = ConfigureTransaction {
-                window,
-                serial: self.next_configure_serial,
-                geometry,
-            };
-            self.next_configure_serial = self.next_configure_serial.saturating_add(1);
-            self.pending_configures.insert(window, transaction);
-            Ok(transaction)
+            Ok(self.configures.issue(window, geometry, Duration::ZERO))
         } else {
             Err(BackendError::new(format!(
                 "cannot configure unmapped {window}"
@@ -138,8 +130,7 @@ impl WindowSystem for HeadlessBackend {
         transaction: ConfigureTransaction,
     ) -> Result<(), BackendError> {
         self.require_initialized()?;
-        if self.pending_configures.get(&transaction.window) == Some(&transaction) {
-            self.pending_configures.remove(&transaction.window);
+        if self.configures.acknowledge(transaction) {
             Ok(())
         } else {
             Err(BackendError::new(format!(

@@ -3,7 +3,9 @@
 //! A backend owns protocol state and translates it to normalized events. It
 //! does not depend on a renderer or expose protocol-native objects to core.
 
+use std::collections::BTreeMap;
 use std::fmt;
+use std::time::Duration;
 
 use wm_types::{Capabilities, OutputId, OutputInfo, Rect, WindowId, WindowMetadata};
 
@@ -16,6 +18,83 @@ pub struct ConfigureTransaction {
     pub serial: u64,
     /// Requested logical geometry.
     pub geometry: Rect,
+}
+
+/// One pending configure transaction together with its adapter monotonic time.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PendingConfigure {
+    /// The serial-bearing request sent to the client.
+    pub transaction: ConfigureTransaction,
+    /// Adapter-supplied monotonic timestamp when the request was issued.
+    pub requested_at: Duration,
+}
+
+/// Deterministic latest-request-wins ledger for asynchronous client configures.
+#[derive(Debug, Default)]
+pub struct ConfigureLedger {
+    next_serial: u64,
+    pending: BTreeMap<WindowId, PendingConfigure>,
+}
+impl ConfigureLedger {
+    /// Issues a request, superseding the older pending request for that window.
+    #[must_use]
+    pub fn issue(
+        &mut self,
+        window: WindowId,
+        geometry: Rect,
+        requested_at: Duration,
+    ) -> ConfigureTransaction {
+        let serial = self.next_serial.saturating_add(1);
+        self.next_serial = serial;
+        let transaction = ConfigureTransaction {
+            window,
+            serial,
+            geometry,
+        };
+        self.pending.insert(
+            window,
+            PendingConfigure {
+                transaction,
+                requested_at,
+            },
+        );
+        transaction
+    }
+    /// Acknowledges exactly the most recent request for its window.
+    pub fn acknowledge(&mut self, transaction: ConfigureTransaction) -> bool {
+        if self
+            .pending
+            .get(&transaction.window)
+            .is_some_and(|pending| pending.transaction == transaction)
+        {
+            self.pending.remove(&transaction.window);
+            true
+        } else {
+            false
+        }
+    }
+    /// Removes and returns transactions older than the supplied timeout.
+    pub fn expire(&mut self, now: Duration, timeout: Duration) -> Vec<ConfigureTransaction> {
+        let expired = self
+            .pending
+            .iter()
+            .filter_map(|(window, pending)| {
+                (now.saturating_sub(pending.requested_at) >= timeout).then_some(*window)
+            })
+            .collect::<Vec<_>>();
+        expired
+            .into_iter()
+            .filter_map(|window| {
+                self.pending
+                    .remove(&window)
+                    .map(|pending| pending.transaction)
+            })
+            .collect()
+    }
+    /// Drops a pending request when its window is destroyed.
+    pub fn forget(&mut self, window: WindowId) {
+        self.pending.remove(&window);
+    }
 }
 
 /// Events emitted by a window-system adapter in coordinator order.
@@ -95,3 +174,30 @@ impl fmt::Display for BackendError {
 }
 
 impl std::error::Error for BackendError {}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigureLedger;
+    use std::time::Duration;
+    use wm_types::{Rect, WindowId};
+
+    #[test]
+    fn latest_request_wins_and_timeout_releases_the_ledger() {
+        let mut ledger = ConfigureLedger::default();
+        let first = ledger.issue(
+            WindowId::new(1),
+            Rect::new(0.0, 0.0, 10.0, 10.0).expect("geometry"),
+            Duration::from_millis(1),
+        );
+        let latest = ledger.issue(
+            WindowId::new(1),
+            Rect::new(0.0, 0.0, 20.0, 10.0).expect("geometry"),
+            Duration::from_millis(2),
+        );
+        assert!(!ledger.acknowledge(first));
+        assert_eq!(
+            ledger.expire(Duration::from_millis(4), Duration::from_millis(2)),
+            [latest]
+        );
+    }
+}
