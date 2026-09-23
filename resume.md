@@ -2,11 +2,11 @@
 
 Last completed phase: **P4 — Provider-defined Lua layouts**.
 
-Last completed step: `feat(p5): bound IPC subscriptions`.
+Last completed step: `feat(p5): add bounded Unix IPC transport`.
 
 ## Resume next
 
-Continue **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complete: the core stores opaque `LayoutId` values and calls a neutral `LayoutEngine` contract; Lua providers are independent, bounded, reloadable, and versioned. They return validated geometry, optional complete back-to-front paint order, JSON-compatible state, and optional opaque interaction results. Configuration and the runtime select arbitrary IDs without knowing layout names. P5 now has `wm-input`, a backend-neutral modal state machine with configured bindings, transitions, consumed press/release tracking, and safe replacement. Next, parse `modes.lua` and `keybinds.lua` into the active configuration generation, then synchronize those bindings at the runtime safe boundary before adding rules, hooks, versioned IPC, and `horyctl`.
+Continue **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complete: the core stores opaque `LayoutId` values and calls a neutral `LayoutEngine` contract; Lua providers are independent, bounded, reloadable, and versioned. They return validated geometry, optional complete back-to-front paint order, JSON-compatible state, and optional opaque interaction results. Configuration and the runtime select arbitrary IDs without knowing layout names. P5 now has `wm-input`, a backend-neutral modal state machine with configured bindings, transitions, consumed press/release tracking, and safe replacement. It also has deterministic rules, bounded hook policy, a versioned length-prefixed JSON protocol, bounded subscriptions, and an owner-only Unix-domain transport. The transport accepts at most one request per non-blocking poll, applies short I/O deadlines, preserves request IDs, and removes only its exact stale socket path. Next, add coordinator-owned request routing and a configuration-derived private socket path; then attach `horyctl` online commands (`status`, window/workspace queries, profile selection, camera, reload/status, and pending spawn) without making the CLI a runtime dependency.
 
 ## Phase checklist
 
@@ -17,7 +17,7 @@ Continue **P5 — Modal interaction, rules, hooks, IPC, and CLI**. P4 is complet
 | P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
 | P4 | Complete | Arbitrary providers have bounded calculation and interaction callbacks, validated output, isolated last-good reload handling, generic recovery, data-only state migration, cross-provider history, and independent per-workspace selection. |
-| P5 | In progress | Modal bindings, deterministic rules, bounded hook policy, IPC framing, and offline `horyctl config check` exist. Add same-user IPC transport, routing and bounded subscriptions, configuration-backed rules/hooks, and the remaining `horyctl` commands. |
+| P5 | In progress | Modal bindings, deterministic rules, bounded hook policy, IPC framing, bounded subscriptions, owner-only Unix IPC transport, and offline `horyctl config check` exist. Add configuration-derived private socket-path setup, coordinator routing, configuration-backed rules/hooks, and the remaining online `horyctl` commands. |
 | P6 | Not started | Nested Wayland adapter, minimal xdg-shell lifecycle, OpenGL renderer, configure/commit and buffer-release correctness. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
 | P8 | Not started | Layer shell, desktop protocols, clipboard, drag-and-drop, lock policy, and safe pending-spawn association. |
