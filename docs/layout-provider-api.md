@@ -50,6 +50,12 @@ The result can also set `order` to an array containing every supplied window ID 
 
 The result can set `state` to any JSON-compatible value. It is stored under the provider's opaque ID in workspace state and is supplied to the next calculation for that ID. Omitting `state` retains the prior value. Functions, userdata, recursive tables, and values that cannot be converted to JSON reject the calculation and use generic recovery placement.
 
+## Optional interactions
+
+Providers can define an `interact(windows, bounds, camera, state, event)` function. It returns the same result table as `calculate`. The runtime calls it when a future mode or IPC command routes an opaque action to the active provider.
+
+`event` is JSON-compatible and has two fields: `action`, a non-empty provider-defined string, and `payload`, a provider-defined JSON value. Horyzond does not reserve action names or inspect payload fields. If `interact` is absent, the runtime falls back to `calculate`. An invalid interaction result uses generic recovery placement for that request.
+
 Provider source is evaluated in a restricted Lua environment with table, string, math, and UTF-8 libraries. Memory and instruction limits apply to loading and every calculation. Operating-system access, file access, module loading, process spawning, and compositor globals are unavailable.
 
 Configuration reload validates every provider declaration before it becomes active. A failed edit retains that provider's most recent valid implementation when available. Removing an ID from `layouts` removes it intentionally. Providers must not rely on Rust code recognizing their names.

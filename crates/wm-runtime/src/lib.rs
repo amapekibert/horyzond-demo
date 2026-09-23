@@ -6,7 +6,7 @@
 use std::fmt;
 use wm_config::ConfigManager;
 use wm_core::CoreState;
-use wm_layout::{LayoutId, LayoutProviders, ProviderReload};
+use wm_layout::{LayoutId, LayoutInteraction, LayoutProviders, ProviderReload};
 use wm_types::Rect;
 
 /// The result of synchronizing one accepted configuration generation.
@@ -85,6 +85,13 @@ impl LayoutRuntime {
         core.apply_layout(provider.as_ref(), bounds);
     }
 
+    /// Routes an opaque interaction to the active workspace provider.
+    pub fn interact(&self, core: &mut CoreState, interaction: &LayoutInteraction, bounds: Rect) {
+        let layout = core.active_workspace().layout().clone();
+        let provider = self.providers.provider(&layout);
+        core.interact_layout(provider.as_ref(), interaction, bounds);
+    }
+
     /// Reapplies the active workspace layout after a provider reload.
     pub fn reapply_active(&self, core: &mut CoreState, bounds: Rect) {
         let layout = core.active_workspace().layout().clone();
@@ -128,6 +135,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use wm_config::{ConfigManager, ConfigPath, install_defaults};
     use wm_core::CoreState;
+    use wm_layout::LayoutInteraction;
     use wm_script::ScriptLimits;
     use wm_types::{Point, Rect, WindowId};
 
@@ -154,7 +162,7 @@ mod tests {
 
         fs::write(
             root.join("layouts/custom.lua"),
-            "layout = { id = 'custom', api_version = 1 }\nfunction calculate() return { [1] = { x = 5, y = 6, width = 7, height = 8 } } end\n",
+            "layout = { id = 'custom', api_version = 1 }\nfunction calculate() return { [1] = { x = 5, y = 6, width = 7, height = 8 } } end\nfunction interact(windows, bounds, camera, state, event) return { [1] = { x = 5, y = 6, width = 7, height = 8 }, state = { action = event.action } } end\n",
         )
         .expect("provider");
         fs::write(
@@ -180,6 +188,16 @@ mod tests {
                 .scene
                 .pick(Point::new(6.0, 7.0).expect("point")),
             Some(WindowId::new(1))
+        );
+        runtime.interact(
+            &mut core,
+            &LayoutInteraction::new("advance", serde_json::Value::Null).expect("interaction"),
+            Rect::new(0.0, 0.0, 100.0, 100.0).expect("bounds"),
+        );
+        assert_eq!(
+            core.active_layout_state()
+                .provider_state(core.active_workspace().layout()),
+            Some(&serde_json::json!({ "action": "advance" }))
         );
         fs::remove_dir_all(root).expect("cleanup");
     }

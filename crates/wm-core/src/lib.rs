@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use wm_backend::BackendEvent;
-use wm_layout::{LayoutEngine, LayoutId, LayoutInput, LayoutState};
+use wm_layout::{LayoutEngine, LayoutId, LayoutInput, LayoutInteraction, LayoutState};
 use wm_scene::{Camera2D, Scene};
 use wm_types::{OutputId, OutputInfo, Rect, WindowId};
 
@@ -190,6 +190,44 @@ impl CoreState {
             focused: workspace.focused,
             provider_state: provider_state.as_ref(),
         });
+        for (window, geometry) in &result.geometry {
+            workspace.scene.set_window(*window, *geometry);
+        }
+        let _ = workspace.scene.set_order(&result.order);
+        workspace
+            .provider_state
+            .insert(layout.clone(), result.provider_state);
+        workspace.layout_geometry.insert(layout, result.geometry);
+    }
+    /// Routes an opaque interaction to the selected provider and commits its output.
+    ///
+    /// Core neither interprets the interaction action nor its JSON payload.
+    pub fn interact_layout(
+        &mut self,
+        engine: &dyn LayoutEngine,
+        interaction: &LayoutInteraction,
+        bounds: Rect,
+    ) {
+        let windows = self.windows.iter().copied().collect::<Vec<_>>();
+        let workspace = self.active_workspace_mut();
+        let layout = engine.id().clone();
+        workspace.layout = layout.clone();
+        let existing = workspace
+            .layout_geometry
+            .entry(layout.clone())
+            .or_default()
+            .clone();
+        let provider_state = workspace.provider_state.get(&layout).cloned();
+        let result = engine.interact(
+            &LayoutInput {
+                windows: &windows,
+                bounds,
+                existing: &existing,
+                focused: workspace.focused,
+                provider_state: provider_state.as_ref(),
+            },
+            interaction,
+        );
         for (window, geometry) in &result.geometry {
             workspace.scene.set_window(*window, *geometry);
         }

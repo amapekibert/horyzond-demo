@@ -177,6 +177,43 @@ pub struct LayoutInput<'a> {
     pub focused: Option<WindowId>,
     pub provider_state: Option<&'a serde_json::Value>,
 }
+/// An opaque request sent by a caller to the selected provider.
+///
+/// The action name and payload are defined by the provider. Core only routes
+/// the request and persists the returned data-only state.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayoutInteraction {
+    pub action: String,
+    pub payload: serde_json::Value,
+}
+impl LayoutInteraction {
+    /// Creates a request with a non-empty provider-defined action name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `action` contains no non-whitespace text.
+    pub fn new(
+        action: impl Into<String>,
+        payload: serde_json::Value,
+    ) -> Result<Self, LayoutInteractionError> {
+        let action = action.into();
+        if action.trim().is_empty() {
+            return Err(LayoutInteractionError::EmptyAction);
+        }
+        Ok(Self { action, payload })
+    }
+}
+/// Invalid provider-interaction input.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayoutInteractionError {
+    EmptyAction,
+}
+impl fmt::Display for LayoutInteractionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("layout interaction action must not be empty")
+    }
+}
+impl std::error::Error for LayoutInteractionError {}
 /// Validated data returned by a layout provider.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutOutput {
@@ -204,6 +241,13 @@ pub trait LayoutEngine {
     fn id(&self) -> &LayoutId;
     /// Calculates geometry, paint order, and data-only provider state.
     fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput;
+    /// Processes an opaque provider-defined interaction.
+    ///
+    /// Implementations without interaction support preserve the generic
+    /// calculation behavior.
+    fn interact(&self, input: &LayoutInput<'_>, _interaction: &LayoutInteraction) -> LayoutOutput {
+        self.calculate(input)
+    }
 }
 
 /// Generic last-resort placement for any unavailable or failing provider.
@@ -294,15 +338,42 @@ impl LuaLayout {
     }
 
     fn calculate_lua(&self, input: &LayoutInput<'_>) -> Result<LayoutOutput, String> {
+        self.run_lua(input, None)
+    }
+
+    fn interact_lua(
+        &self,
+        input: &LayoutInput<'_>,
+        interaction: &LayoutInteraction,
+    ) -> Result<LayoutOutput, String> {
+        self.run_lua(input, Some(interaction))
+    }
+
+    fn run_lua(
+        &self,
+        input: &LayoutInput<'_>,
+        interaction: Option<&LayoutInteraction>,
+    ) -> Result<LayoutOutput, String> {
         let lua = restricted_lua(self.limits)?;
         lua.load(&self.source)
             .exec()
             .map_err(|error| error.to_string())?;
         validate_layout_contract(&lua, &self.id)?;
-        let calculate: mlua::Function = lua
-            .globals()
-            .get("calculate")
-            .map_err(|error| error.to_string())?;
+        let callback = match interaction {
+            Some(_) => match lua
+                .globals()
+                .get::<Value>("interact")
+                .map_err(|error| error.to_string())?
+            {
+                Value::Nil => return self.calculate_lua(input),
+                Value::Function(callback) => callback,
+                _ => return Err("layout interaction callback must be a function".to_owned()),
+            },
+            None => lua
+                .globals()
+                .get("calculate")
+                .map_err(|error| error.to_string())?,
+        };
         let windows = lua.create_table().map_err(|error| error.to_string())?;
         for (index, window_id) in input.windows.iter().enumerate() {
             let window = lua.create_table().map_err(|error| error.to_string())?;
@@ -323,15 +394,29 @@ impl LuaLayout {
                 .set(index + 1, window)
                 .map_err(|error| error.to_string())?;
         }
-        let result: Table = calculate
-            .call((
-                windows,
-                rectangle_table(&lua, input.bounds)?,
-                lua.create_table().map_err(|error| error.to_string())?,
-                lua.to_value(input.provider_state.unwrap_or(&serde_json::Value::Null))
-                    .map_err(|error| error.to_string())?,
-            ))
+        let bounds = rectangle_table(&lua, input.bounds)?;
+        let camera = lua.create_table().map_err(|error| error.to_string())?;
+        let state = lua
+            .to_value(input.provider_state.unwrap_or(&serde_json::Value::Null))
             .map_err(|error| error.to_string())?;
+        let result: Table = match interaction {
+            Some(interaction) => callback
+                .call((
+                    windows,
+                    bounds,
+                    camera,
+                    state,
+                    lua.to_value(&serde_json::json!({
+                        "action": interaction.action,
+                        "payload": interaction.payload,
+                    }))
+                    .map_err(|error| error.to_string())?,
+                ))
+                .map_err(|error| error.to_string())?,
+            None => callback
+                .call((windows, bounds, camera, state))
+                .map_err(|error| error.to_string())?,
+        };
         let mut output = BTreeMap::new();
         for window_id in input.windows {
             let value: Value = result
@@ -357,6 +442,10 @@ impl LayoutEngine for LuaLayout {
     }
     fn calculate(&self, input: &LayoutInput<'_>) -> LayoutOutput {
         self.calculate_lua(input)
+            .unwrap_or_else(|_| RecoveryLayout::new(self.id.clone()).calculate(input))
+    }
+    fn interact(&self, input: &LayoutInput<'_>, interaction: &LayoutInteraction) -> LayoutOutput {
+        self.interact_lua(input, interaction)
             .unwrap_or_else(|_| RecoveryLayout::new(self.id.clone()).calculate(input))
     }
 }
@@ -648,6 +737,34 @@ mod tests {
         assert_eq!(
             result.provider_state,
             serde_json::json!({ "count": 3, "name": "custom" })
+        );
+    }
+    #[test]
+    fn lua_provider_handles_an_opaque_interaction() {
+        let ids = [WindowId::new(1)];
+        let existing = BTreeMap::new();
+        let layout = LuaLayout {
+            id: id("interactive"),
+            source: source(
+                "interactive",
+                "function calculate() return { [1] = { x = 0, y = 0, width = 10, height = 10 } } end function interact(windows, bounds, camera, state, event) return { [1] = { x = 1, y = 2, width = 10, height = 10 }, state = { action = event.action, payload = event.payload } } end",
+            ),
+            limits: ScriptLimits::default(),
+        };
+        let interaction =
+            LayoutInteraction::new("cycle", serde_json::json!({ "step": 3 })).expect("interaction");
+        let result = layout.interact(&input(&ids, &existing), &interaction);
+        assert_eq!(
+            result.provider_state,
+            serde_json::json!({ "action": "cycle", "payload": { "step": 3 } })
+        );
+        assert!((result.geometry[&WindowId::new(1)].x - 1.).abs() < f64::EPSILON);
+    }
+    #[test]
+    fn interaction_rejects_an_empty_action() {
+        assert_eq!(
+            LayoutInteraction::new("  ", serde_json::Value::Null),
+            Err(LayoutInteractionError::EmptyAction)
         );
     }
     #[test]

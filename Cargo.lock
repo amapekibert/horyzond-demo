@@ -405,6 +405,7 @@ dependencies = [
 name = "wm-runtime"
 version = "0.26.0"
 dependencies = [
+ "serde_json",
  "wm-backend",
  "wm-config",
  "wm-core",

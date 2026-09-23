@@ -75,7 +75,7 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Let a provider return validated world geometry and paint order.
 - [x] Allow callers to select any configured opaque provider through the neutral runtime.
 - [x] Preserve JSON-compatible provider state without storing Lua closures.
-- [ ] Extend the provider protocol with provider-defined interaction callbacks.
+- [x] Route opaque provider-defined interactions without hardcoded layout actions.
 - [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
 
 ## Contributing workflow
