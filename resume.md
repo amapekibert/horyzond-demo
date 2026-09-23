@@ -2,11 +2,11 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `test(p5): cover headless modal workflows`.
+Last completed step: `feat(p6): add feature-gated Wayland adapter`.
 
 ## Resume next
 
-Continue **P6 — First visible Wayland session with OpenGL**. P5 is complete: configured Normal, Insert, Passthrough, Move, Resize, Layout Select, and pending-spawn workflows have transitions, cancellation or recovery bindings, consumed press/release tracking, and visible IPC status. Rules are deterministic and non-recursive; their actions safely create pending launches, select layouts, cancel pending launches, or remain provider-opaque. Lifecycle hooks run after their committed boundaries under quotas. The Unix IPC transport is versioned, framed, bounded, same-user only, and exercised by `horyctl`. The automated headless end-to-end test starts the compositor, selects all four shipped layout profiles through modal input, validates recovery from every configured mode, and checks pending-spawn cancellation. Next, add the P6 nested Wayland backend and OpenGL renderer together as a visible vertical slice while keeping the headless backend and recording renderer buildable without display or graphics system libraries.
+Continue **P6 — First visible Wayland session with OpenGL**. P5 is complete: configured Normal, Insert, Passthrough, Move, Resize, Layout Select, and pending-spawn workflows have transitions, cancellation or recovery bindings, consumed press/release tracking, and visible IPC status. Rules are deterministic and non-recursive; their actions safely create pending launches, select layouts, cancel pending launches, or remain provider-opaque. Lifecycle hooks run after their committed boundaries under quotas. The Unix IPC transport is versioned, framed, bounded, same-user only, and exercised by `horyctl`. The automated headless end-to-end test starts the compositor, selects all four shipped layout profiles through modal input, validates recovery from every configured mode, and checks pending-spawn cancellation. P6 now has `wm-backend-wayland`, an optional Smithay 0.7 adapter boundary whose `nested` feature selects only `backend_winit`, `renderer_gl`, and `wayland_frontend`; the default workspace still has no active graphics dependency. Next, implement protocol-neutral configure transaction tracking and then build the nested xdg-shell lifecycle and GL frame path inside the feature-gated adapter.
 
 ## Phase checklist
 
@@ -18,7 +18,7 @@ Continue **P6 — First visible Wayland session with OpenGL**. P5 is complete: c
 | P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
 | P4 | Complete | Arbitrary providers have bounded calculation and interaction callbacks, validated output, isolated last-good reload handling, generic recovery, data-only state migration, cross-provider history, and independent per-workspace selection. |
 | P5 | Complete | Modal workflows, deterministic rules and action dispatch, lifecycle hooks, bounded same-user IPC, offline and online `horyctl` commands, and an automated headless scenario covering every shipped layout profile and modal recovery path. |
-| P6 | In progress | Start with a nested Wayland adapter and OpenGL renderer as one visible vertical slice. Implement minimal xdg-shell lifecycle, configure/commit sequencing, and buffer-release correctness; retain the independent headless path. |
+| P6 | In progress | `wm-backend-wayland` provides an optional Smithay 0.7 nested adapter boundary and compiles both disabled and enabled. Implement configure transactions, minimal xdg-shell lifecycle, GLES rendering, frame/buffer completion ordering, and composition-root selection; retain the independent headless path. |
 | P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
 | P8 | Not started | Layer shell, desktop protocols, clipboard, drag-and-drop, lock policy, and safe pending-spawn association. |
 | P9 | Not started | Shader assets/reload, damage correctness, scaling, frame pacing, and safe direct scanout. |
