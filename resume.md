@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): route nested popup pointer focus`.
+Last completed step: `feat(p6): recover stalled nested configures`.
 
 ## Resume next
 
@@ -19,6 +19,10 @@ Xdg popups now receive initial and reposition configures, render relative to the
 ### P6 popup input update
 
 Pointer hit testing now checks rendered xdg popups in protocol stacking order before their toplevel parent, using the popup positioner rectangle as its local focus bounds. Explicit popup grabs, client-buffer release ordering, and presentation pacing remain unfinished.
+
+### P6 configure recovery update
+
+The live nested loop now expires unacknowledged toplevel configures after two seconds and reissues the same geometry with a fresh protocol serial, so a slow or lost client acknowledgement cannot permanently block a future commit. Explicit popup grabs, client-buffer release ordering, and presentation pacing remain unfinished.
 
 ## Phase checklist
 

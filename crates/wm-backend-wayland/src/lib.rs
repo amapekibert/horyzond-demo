@@ -239,6 +239,7 @@ mod smithay_boundary {
     const NESTED_OUTPUT_ID: &str = "nested-0";
     const NESTED_OUTPUT_WIDTH: u32 = 1280;
     const NESTED_OUTPUT_HEIGHT: u32 = 720;
+    const CONFIGURE_TIMEOUT: Duration = Duration::from_secs(2);
 
     /// Proves the optional feature resolves Smithay without exporting its types.
     pub(super) fn smithay_version_is_linked() -> bool {
@@ -377,6 +378,34 @@ mod smithay_boundary {
                 .expire_configures(self.state.now(), timeout)
         }
 
+        fn retry_expired_configures(&mut self) {
+            for transaction in self.expire_configures(CONFIGURE_TIMEOUT) {
+                let Some(surface) = self
+                    .state
+                    .xdg_shell_state
+                    .toplevel_surfaces()
+                    .iter()
+                    .find(|surface| {
+                        self.state.window_for(surface.wl_surface()) == Some(transaction.window)
+                    })
+                    .cloned()
+                else {
+                    continue;
+                };
+                let (width, height) = configure_extent(transaction.geometry);
+                surface.with_pending_state(|state| {
+                    state.size = Some((width, height).into());
+                });
+                let serial = surface.send_configure();
+                let _ = self.state.lifecycle.configure_with_serial(
+                    transaction.window,
+                    transaction.geometry,
+                    u64::from(u32::from(serial)),
+                    self.state.now(),
+                );
+            }
+        }
+
         /// Drains normalized lifecycle events in callback order.
         #[must_use]
         pub fn take_events(&mut self) -> Vec<BackendEvent> {
@@ -437,6 +466,7 @@ mod smithay_boundary {
 
                 self.accept_clients()?;
                 self.dispatch_clients()?;
+                self.retry_expired_configures();
                 for event in self.take_events() {
                     on_event(&mut self, event);
                 }
@@ -637,6 +667,15 @@ mod smithay_boundary {
         #[allow(clippy::cast_possible_truncation)]
         {
             (x as i32, y as i32).into()
+        }
+    }
+
+    fn configure_extent(geometry: Rect) -> (i32, i32) {
+        let width = geometry.width.round().clamp(1.0, f64::from(i32::MAX));
+        let height = geometry.height.round().clamp(1.0, f64::from(i32::MAX));
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            (width as i32, height as i32)
         }
     }
 
