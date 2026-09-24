@@ -197,6 +197,7 @@ mod smithay_boundary {
         AbsolutePositionEvent, InputEvent, KeyboardKeyEvent, PointerButtonEvent,
     };
     use smithay::backend::renderer::element::Kind;
+    use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
     use smithay::backend::renderer::element::surface::{
         WaylandSurfaceRenderElement, render_elements_from_surface_tree,
     };
@@ -247,6 +248,7 @@ mod smithay_boundary {
     const NESTED_OUTPUT_HEIGHT: u32 = 720;
     const CONFIGURE_TIMEOUT: Duration = Duration::from_secs(2);
     const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+    const BORDER_WIDTH: i32 = 2;
 
     /// Proves the optional feature resolves Smithay without exporting its types.
     pub(super) fn smithay_version_is_linked() -> bool {
@@ -515,6 +517,7 @@ mod smithay_boundary {
                     let (renderer, mut framebuffer) = backend.bind().map_err(|error| {
                         BackendError::new(format!("cannot bind nested GLES frame: {error}"))
                     })?;
+                    let mut borders = Vec::new();
                     let mut elements = Vec::<WaylandSurfaceRenderElement<GlesRenderer>>::new();
                     for window in &self.state.window_order {
                         let Some(geometry) = self.state.window_geometry.get(window) else {
@@ -531,6 +534,7 @@ mod smithay_boundary {
                         else {
                             continue;
                         };
+                        borders.push(border_buffer(*geometry, self.state.output_info.scale));
                         elements.extend(render_elements_from_surface_tree(
                             renderer,
                             surface.wl_surface(),
@@ -571,6 +575,29 @@ mod smithay_boundary {
                         .map_err(|error| {
                             BackendError::new(format!("cannot clear nested GLES frame: {error}"))
                         })?;
+                    let border_elements = borders
+                        .iter()
+                        .filter_map(|(buffer, location)| {
+                            buffer.as_ref().map(|buffer| {
+                                SolidColorRenderElement::from_buffer(
+                                    buffer,
+                                    *location,
+                                    1.0,
+                                    1.0,
+                                    Kind::Unspecified,
+                                )
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    draw_render_elements::<GlesRenderer, _, _>(
+                        &mut frame,
+                        1.0,
+                        &border_elements,
+                        &[damage],
+                    )
+                    .map_err(|error| {
+                        BackendError::new(format!("cannot draw nested window borders: {error}"))
+                    })?;
                     draw_render_elements(&mut frame, 1.0, &elements, &[damage]).map_err(
                         |error| {
                             BackendError::new(format!("cannot draw nested surface tree: {error}"))
@@ -696,6 +723,29 @@ mod smithay_boundary {
         {
             (x as i32, y as i32).into()
         }
+    }
+
+    fn border_buffer(
+        geometry: Rect,
+        scale: f64,
+    ) -> (Option<SolidColorBuffer>, Point<i32, Physical>) {
+        let base = physical_surface_location(geometry, scale);
+        let location = (base.x - BORDER_WIDTH, base.y - BORDER_WIDTH).into();
+        let width = (geometry.width * scale)
+            .round()
+            .clamp(1.0, f64::from(i32::MAX - BORDER_WIDTH * 2));
+        let height = (geometry.height * scale)
+            .round()
+            .clamp(1.0, f64::from(i32::MAX - BORDER_WIDTH * 2));
+        #[allow(clippy::cast_possible_truncation)]
+        let size = (
+            width as i32 + BORDER_WIDTH * 2,
+            height as i32 + BORDER_WIDTH * 2,
+        );
+        (
+            Some(SolidColorBuffer::new(size, [0.22, 0.48, 0.82, 1.0])),
+            location,
+        )
     }
 
     fn configure_extent(geometry: Rect) -> (i32, i32) {
