@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): pace nested presentation`.
+Last completed step: `feat(p6): configure nested client resizes`.
 
 ## Resume next
 
@@ -31,6 +31,10 @@ The nested adapter now enables Smithay's `desktop` helper module exclusively for
 ### P6 presentation update
 
 The nested presenter now performs correct full redraws on a 16 ms frame budget, sleeping only after a completed Winit submit. This bounds idle CPU use while preserving frame callback and ownership ordering. Client-buffer release validation against real applications remains unfinished.
+
+### P6 resize update
+
+Core scene geometry changes now send xdg toplevel resize configures when the extent changes. The lifecycle allows a mapped toplevel to enter a fresh configure/acknowledge/commit round trip, and the nested adapter sends the matching protocol serial. Real-client validation of buffer-release ordering remains unfinished.
 
 ## Phase checklist
 

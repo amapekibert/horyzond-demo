@@ -44,7 +44,7 @@ impl XdgLifecycle {
     ///
     /// # Errors
     ///
-    /// Returns an error for an unknown or already mapped toplevel.
+    /// Returns an error for an unknown or acknowledgement-ready toplevel.
     pub fn configure(
         &mut self,
         window: WindowId,
@@ -52,16 +52,16 @@ impl XdgLifecycle {
         now: std::time::Duration,
     ) -> Result<ConfigureTransaction, BackendError> {
         match self.states.get(&window) {
-            Some(XdgSurfaceState::New | XdgSurfaceState::AwaitingConfigure) => {
+            Some(
+                XdgSurfaceState::New | XdgSurfaceState::AwaitingConfigure | XdgSurfaceState::Mapped,
+            ) => {
                 self.states
                     .insert(window, XdgSurfaceState::AwaitingConfigure);
                 Ok(self.configures.issue(window, geometry, now))
             }
-            Some(XdgSurfaceState::ReadyToCommit | XdgSurfaceState::Mapped) => {
-                Err(BackendError::new(format!(
-                    "{window} cannot receive a new configure in its current lifecycle state"
-                )))
-            }
+            Some(XdgSurfaceState::ReadyToCommit) => Err(BackendError::new(format!(
+                "{window} cannot receive a new configure in its current lifecycle state"
+            ))),
             None => Err(BackendError::new(format!("unknown xdg toplevel {window}"))),
         }
     }
@@ -69,7 +69,7 @@ impl XdgLifecycle {
     ///
     /// # Errors
     ///
-    /// Returns an error for an unknown or already mapped toplevel, or for a
+    /// Returns an error for an unknown or acknowledgement-ready toplevel, or for a
     /// zero serial that cannot identify a protocol transaction.
     pub fn configure_with_serial(
         &mut self,
@@ -82,18 +82,18 @@ impl XdgLifecycle {
             return Err(BackendError::new("xdg configure serial must not be zero"));
         }
         match self.states.get(&window) {
-            Some(XdgSurfaceState::New | XdgSurfaceState::AwaitingConfigure) => {
+            Some(
+                XdgSurfaceState::New | XdgSurfaceState::AwaitingConfigure | XdgSurfaceState::Mapped,
+            ) => {
                 self.states
                     .insert(window, XdgSurfaceState::AwaitingConfigure);
                 Ok(self
                     .configures
                     .issue_with_serial(window, geometry, serial, now))
             }
-            Some(XdgSurfaceState::ReadyToCommit | XdgSurfaceState::Mapped) => {
-                Err(BackendError::new(format!(
-                    "{window} cannot receive a new configure in its current lifecycle state"
-                )))
-            }
+            Some(XdgSurfaceState::ReadyToCommit) => Err(BackendError::new(format!(
+                "{window} cannot receive a new configure in its current lifecycle state"
+            ))),
             None => Err(BackendError::new(format!("unknown xdg toplevel {window}"))),
         }
     }
@@ -234,7 +234,7 @@ mod smithay_boundary {
     use wm_backend::BackendEvent;
     use wm_render::{FrameCompletion, FrameLedger, FrameToken};
 
-    use super::{BackendError, Rect, WindowId, XdgLifecycle};
+    use super::{BackendError, Rect, WindowId, XdgLifecycle, XdgSurfaceState};
     use wm_types::OutputInfo;
 
     const INITIAL_WIDTH: i32 = 800;
@@ -833,8 +833,44 @@ mod smithay_boundary {
         }
 
         fn synchronize_window_geometry(&mut self, windows: &[(WindowId, Rect)]) {
+            let changed = windows
+                .iter()
+                .filter_map(|(window, geometry)| {
+                    (self.window_geometry.get(window) != Some(geometry))
+                        .then_some((*window, *geometry))
+                })
+                .collect::<Vec<_>>();
             self.window_geometry = windows.iter().copied().collect();
             self.window_order = windows.iter().map(|(window, _)| *window).collect();
+            for (window, geometry) in changed {
+                self.reconfigure_mapped_toplevel(window, geometry);
+            }
+        }
+
+        fn reconfigure_mapped_toplevel(&mut self, window: WindowId, geometry: Rect) {
+            if self.lifecycle.state(window) != Some(XdgSurfaceState::Mapped) {
+                return;
+            }
+            let Some(surface) = self
+                .xdg_shell_state
+                .toplevel_surfaces()
+                .iter()
+                .find(|surface| self.window_for(surface.wl_surface()) == Some(window))
+                .cloned()
+            else {
+                return;
+            };
+            let (width, height) = configure_extent(geometry);
+            surface.with_pending_state(|state| {
+                state.size = Some((width, height).into());
+            });
+            let serial = surface.send_configure();
+            let _ = self.lifecycle.configure_with_serial(
+                window,
+                geometry,
+                u64::from(u32::from(serial)),
+                self.now(),
+            );
         }
 
         fn pointer_focus_at(
@@ -1222,6 +1258,36 @@ mod tests {
                 .configure(window, geometry, Duration::from_millis(21))
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn xdg_lifecycle_allows_resizing_a_mapped_toplevel() {
+        let mut lifecycle = XdgLifecycle::default();
+        let window = WindowId::new(7);
+        lifecycle.register(window).expect("register");
+        let initial = lifecycle
+            .configure(
+                window,
+                Rect::new(0.0, 0.0, 100.0, 50.0).expect("initial geometry"),
+                Duration::ZERO,
+            )
+            .expect("initial configure");
+        lifecycle
+            .acknowledge(initial)
+            .expect("initial acknowledgement");
+        lifecycle.commit(window).expect("initial commit");
+        let resized = lifecycle
+            .configure(
+                window,
+                Rect::new(0.0, 0.0, 200.0, 100.0).expect("resized geometry"),
+                Duration::from_millis(1),
+            )
+            .expect("resize configure");
+        lifecycle
+            .acknowledge(resized)
+            .expect("resize acknowledgement");
+        lifecycle.commit(window).expect("resize commit");
+        assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::Mapped));
     }
 
     #[test]
