@@ -841,6 +841,7 @@ mod smithay_boundary {
     struct PopupPlacement {
         location: Point<i32, Logical>,
         size: Size<i32, Logical>,
+        positioner: PositionerState,
     }
 
     impl NestedState {
@@ -961,6 +962,7 @@ mod smithay_boundary {
             for (window, geometry) in changed {
                 self.reconfigure_mapped_toplevel(window, geometry);
             }
+            self.refresh_popup_placements();
         }
 
         fn reconfigure_mapped_toplevel(&mut self, window: WindowId, geometry: Rect) {
@@ -1043,15 +1045,23 @@ mod smithay_boundary {
         fn place_popup(&mut self, surface: &PopupSurface, positioner: &PositionerState) {
             let parent: Point<i32, Logical> = surface
                 .get_parent_surface()
-                .and_then(|parent| self.window_for(&parent))
-                .and_then(|window| self.window_geometry.get(&window))
-                .map_or((0, 0).into(), |geometry| {
-                    // Layout geometry is logical and finite; positioner values are protocol i32s.
-                    #[allow(clippy::cast_possible_truncation)]
-                    {
-                        (geometry.x.round() as i32, geometry.y.round() as i32).into()
-                    }
-                });
+                .and_then(|parent| {
+                    self.window_for(&parent)
+                        .and_then(|window| self.window_geometry.get(&window))
+                        .map(|geometry| {
+                            // Layout geometry is logical and finite; positioner values are protocol i32s.
+                            #[allow(clippy::cast_possible_truncation)]
+                            {
+                                (geometry.x.round() as i32, geometry.y.round() as i32).into()
+                            }
+                        })
+                        .or_else(|| {
+                            self.popups
+                                .get(&Self::surface_key(&parent))
+                                .map(|popup| popup.location)
+                        })
+                })
+                .unwrap_or_else(|| (0, 0).into());
             let output_size = self.logical_output_size();
             let target = Rectangle::new((-parent.x, -parent.y).into(), output_size);
             let geometry = (*positioner).get_unconstrained_geometry(target);
@@ -1060,8 +1070,25 @@ mod smithay_boundary {
                 PopupPlacement {
                     location: parent + geometry.loc,
                     size: geometry.size,
+                    positioner: *positioner,
                 },
             );
+        }
+
+        fn refresh_popup_placements(&mut self) {
+            let popups = self
+                .xdg_shell_state
+                .popup_surfaces()
+                .iter()
+                .filter_map(|surface| {
+                    self.popups
+                        .get(&Self::surface_key(surface.wl_surface()))
+                        .map(|placement| (surface.clone(), placement.positioner))
+                })
+                .collect::<Vec<_>>();
+            for (surface, positioner) in popups {
+                self.place_popup(&surface, &positioner);
+            }
         }
 
         fn logical_output_size(&self) -> Size<i32, Logical> {
