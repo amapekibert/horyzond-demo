@@ -16,6 +16,10 @@ use wm_runtime::{LayoutRuntime, LayoutRuntimeUpdate};
 use wm_script::ScriptLimits;
 use wm_types::{OutputInfo, Point, Rect};
 
+#[cfg(feature = "nested-wayland")]
+use wm_backend_wayland::NestedWaylandServer;
+
+#[allow(clippy::too_many_lines)]
 fn main() {
     let options = match parse_options() {
         Ok(options) => options,
@@ -77,6 +81,37 @@ fn main() {
     ) {
         exit_with_error(&error.to_string());
     }
+    let mut hooks = HookDispatcher::new(256);
+    dispatch_hook(
+        &mut hooks,
+        &configuration,
+        HookEvent::Startup,
+        "on_startup",
+        &serde_json::json!({ "generation": configuration.generation() }),
+        &mut logger,
+    );
+
+    if let Some(socket_name) = options.nested_socket {
+        #[cfg(feature = "nested-wayland")]
+        {
+            run_nested(
+                &socket_name,
+                &mut configuration,
+                &mut runtime,
+                &mut core,
+                &mut logger,
+                &mut hooks,
+            );
+            if let Err(error) = logger.close() {
+                exit_with_error(&error.to_string());
+            }
+            return;
+        }
+        #[cfg(not(feature = "nested-wayland"))]
+        exit_with_error(&format!(
+            "nested Wayland runtime requested for socket {socket_name:?}, but this binary was built without --features nested-wayland"
+        ));
+    }
 
     if let Err(error) = backend.initialize() {
         eprintln!("failed to initialize the headless backend: {error}");
@@ -89,16 +124,6 @@ fn main() {
         Ok(server) => server,
         Err(error) => exit_with_error(&error.to_string()),
     };
-    let mut hooks = HookDispatcher::new(256);
-    dispatch_hook(
-        &mut hooks,
-        &configuration,
-        HookEvent::Startup,
-        "on_startup",
-        &serde_json::json!({ "generation": configuration.generation() }),
-        &mut logger,
-    );
-
     println!(
         "Horyzond headless runtime is ready: {} output(s), {} layout, renderer capabilities: {:?}",
         backend.outputs().len(),
@@ -117,6 +142,50 @@ fn main() {
         );
     }
     if let Err(error) = logger.close() {
+        exit_with_error(&error.to_string());
+    }
+}
+
+#[cfg(feature = "nested-wayland")]
+fn run_nested(
+    socket_name: &str,
+    configuration: &mut ConfigManager,
+    runtime: &mut LayoutRuntime,
+    core: &mut CoreState,
+    logger: &mut SessionLogger,
+    hooks: &mut HookDispatcher,
+) {
+    let server = match NestedWaylandServer::bind(socket_name) {
+        Ok(server) => server,
+        Err(error) => exit_with_error(&error.to_string()),
+    };
+    println!(
+        "Horyzond nested Wayland runtime is ready on {}; set WAYLAND_DISPLAY to connect clients.",
+        server.socket_name().map_or_else(
+            || socket_name.to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        )
+    );
+    if let Err(error) = server.run_with_events(|event| {
+        if let Err(error) = core.apply_event(event.clone()) {
+            let _ = logger.record(LogLevel::Warn, "backend", &error.to_string());
+            return;
+        }
+        match event {
+            BackendEvent::WindowMapped(window) => dispatch_hook(
+                hooks,
+                configuration,
+                HookEvent::Committed,
+                "on_window_open",
+                &serde_json::json!({ "window_id": window.get() }),
+                logger,
+            ),
+            BackendEvent::WindowUnmapped(window) => runtime.forget_window_metadata(window),
+            BackendEvent::OutputAdded(_)
+            | BackendEvent::OutputRemoved(_)
+            | BackendEvent::WindowMetadataChanged(_, _) => {}
+        }
+    }) {
         exit_with_error(&error.to_string());
     }
 }
@@ -454,11 +523,13 @@ fn handle_ipc(
 struct Options {
     config: ConfigPath,
     once: bool,
+    nested_socket: Option<String>,
 }
 
 fn parse_options() -> Result<Options, String> {
     let mut config = None;
     let mut once = false;
+    let mut nested_socket = None;
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
         if argument == "--config-dir" {
@@ -469,8 +540,22 @@ fn parse_options() -> Result<Options, String> {
             ));
         } else if argument == "--once" {
             once = true;
+        } else if argument == "--nested" {
+            nested_socket.get_or_insert_with(|| "horyzond-0".to_owned());
+        } else if argument == "--nested-socket" {
+            let socket = arguments
+                .next()
+                .ok_or_else(|| "--nested-socket requires a socket name".to_owned())?;
+            if nested_socket
+                .replace(socket.to_string_lossy().into_owned())
+                .is_some()
+            {
+                return Err("nested Wayland runtime was selected more than once".to_owned());
+            }
         } else if argument == "--help" || argument == "-h" {
-            println!("Usage: horyzond [--config-dir PATH] [--once]");
+            println!(
+                "Usage: horyzond [--config-dir PATH] [--once] [--nested | --nested-socket NAME]"
+            );
             std::process::exit(0);
         } else {
             return Err(format!("unknown argument: {}", argument.to_string_lossy()));
@@ -481,6 +566,7 @@ fn parse_options() -> Result<Options, String> {
             .map_or_else(ConfigPath::default_for_current_user, Ok)
             .map_err(|error| error.to_string())?,
         once,
+        nested_socket,
     })
 }
 

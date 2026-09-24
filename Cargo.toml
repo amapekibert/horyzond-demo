@@ -48,9 +48,14 @@ repository.workspace = true
 description = "A modular window manager and compositor."
 default-run = "horyzond"
 
+[features]
+default = []
+nested-wayland = ["dep:wm-backend-wayland"]
+
 [dependencies]
 wm-backend = { path = "crates/wm-backend" }
 wm-backend-headless = { path = "crates/wm-backend-headless" }
+wm-backend-wayland = { path = "crates/wm-backend-wayland", features = ["nested"], optional = true }
 wm-config = { path = "crates/wm-config" }
 wm-core = { path = "crates/wm-core" }
 wm-diagnostics = { path = "crates/wm-diagnostics" }

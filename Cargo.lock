@@ -512,6 +512,7 @@ dependencies = [
  "serde_json",
  "wm-backend",
  "wm-backend-headless",
+ "wm-backend-wayland",
  "wm-config",
  "wm-core",
  "wm-diagnostics",

@@ -346,7 +346,21 @@ mod smithay_boundary {
         ///
         /// Returns an error when the nested host, renderer, protocol dispatch,
         /// or presentation backend fails.
-        pub fn run(mut self) -> Result<(), BackendError> {
+        pub fn run(self) -> Result<(), BackendError> {
+            self.run_with_events(|_| {})
+        }
+
+        /// Runs the nested host and delivers normalized lifecycle events in
+        /// protocol callback order to the composition root.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when the nested host, renderer, protocol dispatch,
+        /// or presentation backend fails.
+        pub fn run_with_events(
+            mut self,
+            mut on_event: impl FnMut(BackendEvent),
+        ) -> Result<(), BackendError> {
             use smithay::reexports::winit::platform::pump_events::PumpStatus;
 
             let (mut backend, mut event_loop) = winit::init::<GlesRenderer>().map_err(|error| {
@@ -363,6 +377,9 @@ mod smithay_boundary {
 
                 self.accept_clients()?;
                 self.dispatch_clients()?;
+                for event in self.take_events() {
+                    on_event(event);
+                }
 
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
