@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `fix(p6): handle nested null-buffer unmaps`.
+Last completed step: `test(p6): cover nested client remapping`.
 
 ## Resume next
 

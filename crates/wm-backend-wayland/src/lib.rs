@@ -1640,10 +1640,11 @@ mod tests {
         lifecycle.unmap(window).expect("unmap");
         assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::New));
         assert!(lifecycle.commit(window).is_err());
-        assert!(
-            lifecycle
-                .configure(window, geometry, Duration::from_millis(1))
-                .is_ok()
-        );
+        let remap = lifecycle
+            .configure(window, geometry, Duration::from_millis(1))
+            .expect("remap configure");
+        lifecycle.acknowledge(remap).expect("remap acknowledgement");
+        lifecycle.commit(window).expect("remap commit");
+        assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::Mapped));
     }
 }
