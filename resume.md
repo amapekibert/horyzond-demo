@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `test(p6): cover nested client remapping`.
+Last completed step: `test(p6): reject stale nested configure serials`.
 
 ## Resume next
 

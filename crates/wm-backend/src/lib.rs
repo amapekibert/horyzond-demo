@@ -247,4 +247,15 @@ mod tests {
             [latest]
         );
     }
+
+    #[test]
+    fn protocol_serial_acknowledgements_reject_stale_requests() {
+        let mut ledger = ConfigureLedger::default();
+        let window = WindowId::new(2);
+        let geometry = Rect::new(0.0, 0.0, 10.0, 10.0).expect("geometry");
+        let first = ledger.issue_with_serial(window, geometry, 41, Duration::ZERO);
+        let latest = ledger.issue_with_serial(window, geometry, 42, Duration::from_millis(1));
+        assert!(!ledger.acknowledge_serial(window, first.serial));
+        assert!(ledger.acknowledge_serial(window, latest.serial));
+    }
 }
