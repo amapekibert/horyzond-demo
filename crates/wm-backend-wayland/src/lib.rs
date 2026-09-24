@@ -84,6 +84,24 @@ impl XdgLifecycle {
             )))
         }
     }
+    /// Expires unanswered configure requests and returns each timed-out request.
+    ///
+    /// An expired toplevel returns to `New`, allowing the adapter to issue a
+    /// fresh configure without treating a slow client as mapped.
+    #[must_use]
+    pub fn expire_configures(
+        &mut self,
+        now: std::time::Duration,
+        timeout: std::time::Duration,
+    ) -> Vec<ConfigureTransaction> {
+        let expired = self.configures.expire(now, timeout);
+        for transaction in &expired {
+            if self.states.get(&transaction.window) == Some(&XdgSurfaceState::AwaitingConfigure) {
+                self.states.insert(transaction.window, XdgSurfaceState::New);
+            }
+        }
+        expired
+    }
     /// Maps a toplevel only after its initial configure acknowledgement.
     ///
     /// # Errors
@@ -182,5 +200,26 @@ mod tests {
         lifecycle.acknowledge(configure).expect("acknowledge");
         lifecycle.commit(window).expect("commit");
         assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::Mapped));
+    }
+
+    #[test]
+    fn xdg_lifecycle_timeout_allows_a_fresh_configure() {
+        let mut lifecycle = XdgLifecycle::default();
+        let window = WindowId::new(5);
+        let geometry = Rect::new(0.0, 0.0, 100.0, 50.0).expect("geometry");
+        lifecycle.register(window).expect("register");
+        let expired = lifecycle
+            .configure(window, geometry, Duration::from_millis(10))
+            .expect("configure");
+        assert_eq!(
+            lifecycle.expire_configures(Duration::from_millis(20), Duration::from_millis(5)),
+            [expired]
+        );
+        assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::New));
+        assert!(
+            lifecycle
+                .configure(window, geometry, Duration::from_millis(21))
+                .is_ok()
+        );
     }
 }
