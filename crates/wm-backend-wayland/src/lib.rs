@@ -579,7 +579,9 @@ mod smithay_boundary {
             InputEvent::PointerMotionAbsolute { event } => {
                 let location = event.position_transformed(output_size);
                 state.pointer_location = logical_pointer_location(location, output_size);
-                let focus = state.pointer_focus_at(location);
+                let focus = state
+                    .popup_focus_at(location)
+                    .or_else(|| state.pointer_focus_at(location));
                 let pointer = state.pointer.clone();
                 pointer.motion(
                     state,
@@ -693,12 +695,18 @@ mod smithay_boundary {
         windows: BTreeMap<u32, WindowId>,
         window_geometry: BTreeMap<WindowId, Rect>,
         window_order: Vec<WindowId>,
-        popups: BTreeMap<u32, Point<i32, Logical>>,
+        popups: BTreeMap<u32, PopupPlacement>,
         frame_ledger: FrameLedger,
         next_scene_generation: u64,
         next_window: u64,
         events: Vec<BackendEvent>,
         started_at: Instant,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct PopupPlacement {
+        location: Point<i32, Logical>,
+        size: Size<i32, Logical>,
     }
 
     impl NestedState {
@@ -806,8 +814,27 @@ mod smithay_boundary {
         fn popup_location(&self, surface: &WlSurface) -> Point<i32, Logical> {
             self.popups
                 .get(&Self::surface_key(surface))
-                .copied()
-                .unwrap_or_else(|| (0, 0).into())
+                .map_or_else(|| (0, 0).into(), |placement| placement.location)
+        }
+
+        fn popup_focus_at(
+            &self,
+            location: Point<f64, Logical>,
+        ) -> Option<(WlSurface, Point<f64, Logical>)> {
+            self.xdg_shell_state
+                .popup_surfaces()
+                .iter()
+                .rev()
+                .find_map(|popup| {
+                    let placement = self.popups.get(&Self::surface_key(popup.wl_surface()))?;
+                    let x = f64::from(placement.location.x);
+                    let y = f64::from(placement.location.y);
+                    let contains = location.x >= x
+                        && location.x < x + f64::from(placement.size.w)
+                        && location.y >= y
+                        && location.y < y + f64::from(placement.size.h);
+                    contains.then(|| (popup.wl_surface().clone(), (x, y).into()))
+                })
         }
 
         fn place_popup(&mut self, surface: &PopupSurface, positioner: &PositionerState) {
@@ -824,7 +851,10 @@ mod smithay_boundary {
                 });
             self.popups.insert(
                 Self::surface_key(surface.wl_surface()),
-                parent + positioner.anchor_rect.loc + positioner.offset,
+                PopupPlacement {
+                    location: parent + positioner.anchor_rect.loc + positioner.offset,
+                    size: positioner.rect_size,
+                },
             );
         }
 

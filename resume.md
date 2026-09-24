@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): render nested xdg popups`.
+Last completed step: `feat(p6): route nested popup pointer focus`.
 
 ## Resume next
 
@@ -15,6 +15,10 @@ The nested adapter now consumes core scene rectangles in normalized back-to-fron
 ### P6 popup update
 
 Xdg popups now receive initial and reposition configures, render relative to their mapped toplevel parent plus the positioner anchor and offset, and clear their placement on destruction. Popup input/grab routing, client-buffer release ordering, and presentation pacing remain unfinished.
+
+### P6 popup input update
+
+Pointer hit testing now checks rendered xdg popups in protocol stacking order before their toplevel parent, using the popup positioner rectangle as its local focus bounds. Explicit popup grabs, client-buffer release ordering, and presentation pacing remain unfinished.
 
 ## Phase checklist
 
