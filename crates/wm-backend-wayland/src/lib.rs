@@ -210,7 +210,9 @@ mod smithay_boundary {
     use smithay::delegate_shm;
     use smithay::delegate_xdg_shell;
     use smithay::input::keyboard::{FilterResult, KeyboardHandle, XkbConfig};
-    use smithay::input::pointer::{ButtonEvent, CursorImageStatus, MotionEvent, PointerHandle};
+    use smithay::input::pointer::{
+        ButtonEvent, CursorImageStatus, CursorImageSurfaceData, MotionEvent, PointerHandle,
+    };
     use smithay::input::{Seat, SeatHandler, SeatState};
     use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -218,7 +220,7 @@ mod smithay_boundary {
     use smithay::reexports::wayland_server::protocol::wl_buffer;
     use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
     use smithay::reexports::wayland_server::{Client, Display, ListeningSocket, Resource};
-    use smithay::utils::{Logical, Physical, Rectangle, Serial, Size, Transform};
+    use smithay::utils::{Logical, Physical, Point, Rectangle, Serial, Size, Transform};
     use smithay::wayland::buffer::BufferHandler;
     use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
     use smithay::wayland::output::OutputHandler;
@@ -436,7 +438,7 @@ mod smithay_boundary {
                     let (renderer, mut framebuffer) = backend.bind().map_err(|error| {
                         BackendError::new(format!("cannot bind nested GLES frame: {error}"))
                     })?;
-                    let elements = self
+                    let mut elements = self
                         .state
                         .xdg_shell_state
                         .toplevel_surfaces()
@@ -452,6 +454,16 @@ mod smithay_boundary {
                             )
                         })
                         .collect::<Vec<WaylandSurfaceRenderElement<GlesRenderer>>>();
+                    if let Some((surface, location)) = self.state.cursor_surface_with_location() {
+                        elements.extend(render_elements_from_surface_tree(
+                            renderer,
+                            &surface,
+                            location.to_physical(1),
+                            1.0,
+                            1.0,
+                            Kind::Cursor,
+                        ));
+                    }
                     let mut frame = renderer
                         .render(&mut framebuffer, size, Transform::Flipped180)
                         .map_err(|error| {
@@ -517,6 +529,7 @@ mod smithay_boundary {
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let location = event.position_transformed(output_size);
+                state.pointer_location = logical_pointer_location(location, output_size);
                 let focus = state
                     .xdg_shell_state
                     .toplevel_surfaces()
@@ -548,6 +561,21 @@ mod smithay_boundary {
                 pointer.frame(state);
             }
             _ => {}
+        }
+    }
+
+    fn logical_pointer_location(
+        location: Point<f64, Logical>,
+        bounds: Size<i32, Logical>,
+    ) -> Point<i32, Logical> {
+        let maximum_x = f64::from(bounds.w.saturating_sub(1));
+        let maximum_y = f64::from(bounds.h.saturating_sub(1));
+        let x = location.x.clamp(0.0, maximum_x).floor();
+        let y = location.y.clamp(0.0, maximum_y).floor();
+        // The values were clamped to the representable `i32` output bounds.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            (x as i32, y as i32).into()
         }
     }
 
@@ -586,6 +614,8 @@ mod smithay_boundary {
         keyboard: KeyboardHandle<Self>,
         pointer: PointerHandle<Self>,
         cursor_status: CursorImageStatus,
+        cursor_surface: Option<WlSurface>,
+        pointer_location: Point<i32, Logical>,
         cursor_changed: bool,
         lifecycle: XdgLifecycle,
         windows: BTreeMap<u32, WindowId>,
@@ -638,6 +668,8 @@ mod smithay_boundary {
                 keyboard,
                 pointer,
                 cursor_status: CursorImageStatus::default_named(),
+                cursor_surface: None,
+                pointer_location: (0, 0).into(),
                 cursor_changed: false,
                 lifecycle: XdgLifecycle::default(),
                 windows: BTreeMap::new(),
@@ -701,6 +733,20 @@ mod smithay_boundary {
                 self.cursor_status.clone()
             })
         }
+
+        fn cursor_surface_with_location(&self) -> Option<(WlSurface, Point<i32, Logical>)> {
+            use smithay::wayland::compositor::with_states;
+
+            let surface = self.cursor_surface.clone()?;
+            let hotspot = with_states(&surface, |states| {
+                states
+                    .data_map
+                    .get::<CursorImageSurfaceData>()
+                    .map(|attributes| attributes.lock().expect("cursor attributes lock").hotspot)
+            })
+            .unwrap_or_else(|| (0, 0).into());
+            Some((surface, self.pointer_location - hotspot))
+        }
     }
 
     impl BufferHandler for NestedState {
@@ -751,6 +797,10 @@ mod smithay_boundary {
         fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
 
         fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+            self.cursor_surface = match &image {
+                CursorImageStatus::Surface(surface) => Some(surface.clone()),
+                CursorImageStatus::Hidden | CursorImageStatus::Named(_) => None,
+            };
             self.cursor_status = image;
             self.cursor_changed = true;
         }
