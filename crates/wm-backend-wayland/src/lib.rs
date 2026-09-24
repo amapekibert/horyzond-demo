@@ -976,13 +976,29 @@ mod smithay_boundary {
                         (geometry.x.round() as i32, geometry.y.round() as i32).into()
                     }
                 });
+            let output_size = self.logical_output_size();
+            let target = Rectangle::new((-parent.x, -parent.y).into(), output_size);
+            let geometry = (*positioner).get_unconstrained_geometry(target);
             self.popups.insert(
                 Self::surface_key(surface.wl_surface()),
                 PopupPlacement {
-                    location: parent + positioner.anchor_rect.loc + positioner.offset,
-                    size: positioner.rect_size,
+                    location: parent + geometry.loc,
+                    size: geometry.size,
                 },
             );
+        }
+
+        fn logical_output_size(&self) -> Size<i32, Logical> {
+            let width = (f64::from(self.output_info.physical_width) / self.output_info.scale)
+                .round()
+                .clamp(1.0, f64::from(i32::MAX));
+            let height = (f64::from(self.output_info.physical_height) / self.output_info.scale)
+                .round()
+                .clamp(1.0, f64::from(i32::MAX));
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                (width as i32, height as i32).into()
+            }
         }
 
         fn acquire_frame(&mut self) -> FrameToken {
