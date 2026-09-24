@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): shut down nested clients orderly`.
+Last completed step: `fix(p6): complete nested popup frames`.
 
 ## Resume next
 
@@ -43,6 +43,10 @@ Nested xdg app-id and title changes now emit normalized metadata events. The com
 ### P6 shutdown update
 
 When the Winit host exits, the nested server now explicitly flushes pending protocol events and releases client handles before the display/socket are dropped. This gives normal nested shutdown an ordered protocol boundary. Real-client buffer-release validation remains blocked here by unavailable system `libxkbcommon` development files and no installed Wayland sample client.
+
+### P6 popup frame update
+
+Every completed nested presentation now sends frame callbacks for xdg popup surface trees as well as toplevel trees, so popup clients can schedule their next render. Real-client buffer-release validation remains blocked here by unavailable system `libxkbcommon` development files and no installed Wayland sample client.
 
 ## Phase checklist
 

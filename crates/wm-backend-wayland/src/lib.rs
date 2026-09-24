@@ -590,6 +590,9 @@ mod smithay_boundary {
                 for surface in self.state.xdg_shell_state.toplevel_surfaces() {
                     send_frame_callbacks(surface.wl_surface(), frame_time);
                 }
+                for popup in self.state.xdg_shell_state.popup_surfaces() {
+                    send_frame_callbacks(popup.wl_surface(), frame_time);
+                }
                 self.display.flush_clients().map_err(|error| {
                     BackendError::new(format!("cannot flush nested frame callbacks: {error}"))
                 })?;
