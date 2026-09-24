@@ -680,6 +680,18 @@ mod smithay_boundary {
                 pointer.frame(state);
             }
             InputEvent::PointerButton { event } => {
+                let pointer_location = (
+                    f64::from(state.pointer_location.x),
+                    f64::from(state.pointer_location.y),
+                )
+                    .into();
+                if let Some((surface, _)) = state
+                    .popup_focus_at(pointer_location)
+                    .or_else(|| state.pointer_focus_at(pointer_location))
+                {
+                    let keyboard = state.keyboard.clone();
+                    keyboard.set_focus(state, Some(surface), 0.into());
+                }
                 let pointer = state.pointer.clone();
                 pointer.button(
                     state,
