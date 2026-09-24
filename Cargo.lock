@@ -2109,6 +2109,7 @@ version = "0.26.0"
 dependencies = [
  "smithay",
  "wm-backend",
+ "wm-render",
  "wm-types",
 ]
 

@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): synchronize nested scene geometry`.
+Last completed step: `feat(p6): track nested presentation ownership`.
 
 ## Resume next
 
@@ -10,7 +10,7 @@ Continue **P6 — First visible Wayland session with OpenGL**. P5 is complete: c
 
 ### P6 update
 
-The nested adapter now consumes core scene rectangles in normalized back-to-front paint order. Mapping a window reapplies the active layout to current logical output bounds; surface trees render at those positions; and pointer focus selects the topmost containing toplevel with its matching local origin. This supersedes the earlier note that pointer focus was limited to the first toplevel. Remaining P6 work is adapter-backed frame/buffer ownership, popup/subsurface positioning, and presentation pacing.
+The nested adapter now consumes core scene rectangles in normalized back-to-front paint order. Mapping a window reapplies the active layout to current logical output bounds; surface trees render at those positions; and pointer focus selects the topmost containing toplevel with its matching local origin. This supersedes the earlier note that pointer focus was limited to the first toplevel. Each nested frame now acquires a neutral frame-ledger token, records rendering completion after GLES finish, and releases ownership only after Winit submission succeeds. Remaining P6 work is client-buffer release ordering, popup/subsurface positioning, and presentation pacing.
 
 ## Phase checklist
 

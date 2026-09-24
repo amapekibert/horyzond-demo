@@ -229,6 +229,7 @@ mod smithay_boundary {
     };
     use smithay::wayland::shm::{ShmHandler, ShmState};
     use wm_backend::BackendEvent;
+    use wm_render::{FrameCompletion, FrameLedger, FrameToken};
 
     use super::{BackendError, Rect, WindowId, XdgLifecycle};
     use wm_types::OutputInfo;
@@ -414,6 +415,7 @@ mod smithay_boundary {
         ///
         /// Returns an error when the nested host, renderer, protocol dispatch,
         /// or presentation backend fails.
+        #[allow(clippy::too_many_lines)]
         pub fn run_with_callbacks(
             mut self,
             mut on_event: impl FnMut(&mut Self, BackendEvent),
@@ -456,6 +458,7 @@ mod smithay_boundary {
 
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
+                let frame_token = self.state.acquire_frame();
                 {
                     let (renderer, mut framebuffer) = backend.bind().map_err(|error| {
                         BackendError::new(format!("cannot bind nested GLES frame: {error}"))
@@ -517,6 +520,8 @@ mod smithay_boundary {
                         BackendError::new(format!("cannot finish nested GLES frame: {error}"))
                     })?;
                 }
+                self.state
+                    .complete_frame(&frame_token, FrameCompletion::Rendered);
 
                 let frame_time = self.state.now().as_millis().try_into().unwrap_or(u32::MAX);
                 for surface in self.state.xdg_shell_state.toplevel_surfaces() {
@@ -528,6 +533,8 @@ mod smithay_boundary {
                 backend.submit(Some(&[damage])).map_err(|error| {
                     BackendError::new(format!("cannot present nested GLES frame: {error}"))
                 })?;
+                self.state
+                    .complete_frame(&frame_token, FrameCompletion::Presented);
             }
         }
     }
@@ -662,6 +669,8 @@ mod smithay_boundary {
         windows: BTreeMap<u32, WindowId>,
         window_geometry: BTreeMap<WindowId, Rect>,
         window_order: Vec<WindowId>,
+        frame_ledger: FrameLedger,
+        next_scene_generation: u64,
         next_window: u64,
         events: Vec<BackendEvent>,
         started_at: Instant,
@@ -718,6 +727,8 @@ mod smithay_boundary {
                 windows: BTreeMap::new(),
                 window_geometry: BTreeMap::new(),
                 window_order: Vec::new(),
+                frame_ledger: FrameLedger::default(),
+                next_scene_generation: 0,
                 next_window: 1,
                 events: vec![BackendEvent::OutputAdded(output)],
                 started_at: Instant::now(),
@@ -764,6 +775,20 @@ mod smithay_boundary {
                         })
                 })?
             })
+        }
+
+        fn acquire_frame(&mut self) -> FrameToken {
+            self.next_scene_generation = self.next_scene_generation.saturating_add(1);
+            let token = self.frame_ledger.acquire(&self.output_info.id);
+            debug_assert!(
+                self.frame_ledger
+                    .submit(token.clone(), self.next_scene_generation)
+            );
+            token
+        }
+
+        fn complete_frame(&mut self, token: &FrameToken, completion: FrameCompletion) {
+            let _ = self.frame_ledger.complete(token, completion);
         }
 
         fn update_output(&mut self, size: Size<i32, Physical>, scale: f64) {
