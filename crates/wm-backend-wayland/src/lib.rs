@@ -503,9 +503,8 @@ mod smithay_boundary {
                 if let Some(cursor) = self.state.take_cursor_status() {
                     match cursor {
                         CursorImageStatus::Hidden | CursorImageStatus::Surface(_) => {
-                            // A client cursor surface is not yet included in
-                            // the scene tree, so hide the host cursor instead
-                            // of drawing an unrelated named cursor.
+                            // The renderer draws client cursor surfaces, so
+                            // hide the host cursor to avoid showing both.
                             backend.window().set_cursor_visible(false);
                         }
                         CursorImageStatus::Named(icon) => {
@@ -568,7 +567,7 @@ mod smithay_boundary {
                         elements.extend(render_elements_from_surface_tree(
                             renderer,
                             &surface,
-                            location.to_physical(1),
+                            physical_logical_point(location, self.state.output_info.scale),
                             1.0,
                             1.0,
                             Kind::Cursor,
@@ -736,10 +735,18 @@ mod smithay_boundary {
     }
 
     fn physical_surface_location(geometry: Rect, scale: f64) -> Point<i32, Physical> {
-        let x = (geometry.x * scale)
+        physical_point((geometry.x, geometry.y).into(), scale)
+    }
+
+    fn physical_logical_point(location: Point<i32, Logical>, scale: f64) -> Point<i32, Physical> {
+        physical_point((f64::from(location.x), f64::from(location.y)).into(), scale)
+    }
+
+    fn physical_point(location: Point<f64, Logical>, scale: f64) -> Point<i32, Physical> {
+        let x = (location.x * scale)
             .round()
             .clamp(f64::from(i32::MIN), f64::from(i32::MAX));
-        let y = (geometry.y * scale)
+        let y = (location.y * scale)
             .round()
             .clamp(f64::from(i32::MIN), f64::from(i32::MAX));
         // The values were clamped to the representable physical coordinate range.
