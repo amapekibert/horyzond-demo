@@ -60,6 +60,33 @@ impl ConfigureLedger {
         );
         transaction
     }
+    /// Records a request whose protocol assigned the serial externally.
+    ///
+    /// The supplied serial is opaque to this neutral ledger but must be unique
+    /// among simultaneously pending requests for correct acknowledgement.
+    #[must_use]
+    pub fn issue_with_serial(
+        &mut self,
+        window: WindowId,
+        geometry: Rect,
+        serial: u64,
+        requested_at: Duration,
+    ) -> ConfigureTransaction {
+        self.next_serial = self.next_serial.max(serial);
+        let transaction = ConfigureTransaction {
+            window,
+            serial,
+            geometry,
+        };
+        self.pending.insert(
+            window,
+            PendingConfigure {
+                transaction,
+                requested_at,
+            },
+        );
+        transaction
+    }
     /// Acknowledges exactly the most recent request for its window.
     pub fn acknowledge(&mut self, transaction: ConfigureTransaction) -> bool {
         if self
