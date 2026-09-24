@@ -924,7 +924,7 @@ mod smithay_boundary {
                     .iter()
                     .find(|popup| popup.wl_surface() == surface)
                     .and_then(PopupSurface::get_parent_surface)
-                    .and_then(|parent| self.window_for(&parent))
+                    .and_then(|parent| self.focus_window_for(&parent))
             })
         }
 
