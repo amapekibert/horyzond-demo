@@ -415,6 +415,20 @@ mod smithay_boundary {
                     on_event(event);
                 }
                 on_tick();
+                if let Some(cursor) = self.state.take_cursor_status() {
+                    match cursor {
+                        CursorImageStatus::Hidden | CursorImageStatus::Surface(_) => {
+                            // A client cursor surface is not yet included in
+                            // the scene tree, so hide the host cursor instead
+                            // of drawing an unrelated named cursor.
+                            backend.window().set_cursor_visible(false);
+                        }
+                        CursorImageStatus::Named(icon) => {
+                            backend.window().set_cursor_visible(true);
+                            backend.window().set_cursor(icon);
+                        }
+                    }
+                }
 
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
@@ -571,6 +585,8 @@ mod smithay_boundary {
         seat_state: SeatState<Self>,
         keyboard: KeyboardHandle<Self>,
         pointer: PointerHandle<Self>,
+        cursor_status: CursorImageStatus,
+        cursor_changed: bool,
         lifecycle: XdgLifecycle,
         windows: BTreeMap<u32, WindowId>,
         next_window: u64,
@@ -621,6 +637,8 @@ mod smithay_boundary {
                 seat_state,
                 keyboard,
                 pointer,
+                cursor_status: CursorImageStatus::default_named(),
+                cursor_changed: false,
                 lifecycle: XdgLifecycle::default(),
                 windows: BTreeMap::new(),
                 next_window: 1,
@@ -676,6 +694,13 @@ mod smithay_boundary {
             self.events.push(BackendEvent::OutputRemoved(previous.id));
             self.events.push(BackendEvent::OutputAdded(updated));
         }
+
+        fn take_cursor_status(&mut self) -> Option<CursorImageStatus> {
+            self.cursor_changed.then(|| {
+                self.cursor_changed = false;
+                self.cursor_status.clone()
+            })
+        }
     }
 
     impl BufferHandler for NestedState {
@@ -725,7 +750,10 @@ mod smithay_boundary {
 
         fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
 
-        fn cursor_image(&mut self, _seat: &Seat<Self>, _image: CursorImageStatus) {}
+        fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+            self.cursor_status = image;
+            self.cursor_changed = true;
+        }
     }
 
     impl XdgShellHandler for NestedState {
