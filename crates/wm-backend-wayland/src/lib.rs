@@ -225,17 +225,20 @@ mod smithay_boundary {
     use smithay::reexports::wayland_server::{Client, Display, ListeningSocket, Resource};
     use smithay::utils::{Logical, Physical, Point, Rectangle, Serial, Size, Transform};
     use smithay::wayland::buffer::BufferHandler;
-    use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
+    use smithay::wayland::compositor::{
+        CompositorClientState, CompositorHandler, CompositorState, with_states,
+    };
     use smithay::wayland::output::OutputHandler;
     use smithay::wayland::shell::xdg::{
         Configure, PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+        XdgToplevelSurfaceData,
     };
     use smithay::wayland::shm::{ShmHandler, ShmState};
     use wm_backend::BackendEvent;
     use wm_render::{FrameCompletion, FrameLedger, FrameToken};
 
     use super::{BackendError, Rect, WindowId, XdgLifecycle, XdgSurfaceState};
-    use wm_types::OutputInfo;
+    use wm_types::{OutputInfo, WindowMetadata};
 
     const INITIAL_WIDTH: i32 = 800;
     const INITIAL_HEIGHT: i32 = 600;
@@ -832,6 +835,26 @@ mod smithay_boundary {
             self.windows.get(&Self::surface_key(surface)).copied()
         }
 
+        fn push_metadata_for(&mut self, surface: &ToplevelSurface) {
+            let Some(window) = self.window_for(surface.wl_surface()) else {
+                return;
+            };
+            let metadata = with_states(surface.wl_surface(), |states| {
+                let attributes = states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .expect("xdg toplevel always has role attributes")
+                    .lock()
+                    .expect("xdg toplevel attributes lock");
+                WindowMetadata {
+                    app_id: attributes.app_id.clone().unwrap_or_default(),
+                    title: attributes.title.clone().unwrap_or_default(),
+                }
+            });
+            self.events
+                .push(BackendEvent::WindowMetadataChanged(window, metadata));
+        }
+
         fn synchronize_window_geometry(&mut self, windows: &[(WindowId, Rect)]) {
             let changed = windows
                 .iter()
@@ -1042,6 +1065,15 @@ mod smithay_boundary {
                 let keyboard = self.keyboard.clone();
                 keyboard.set_focus(self, Some(surface.clone()), 0.into());
                 self.events.push(BackendEvent::WindowMapped(window));
+                if let Some(toplevel) = self
+                    .xdg_shell_state
+                    .toplevel_surfaces()
+                    .iter()
+                    .find(|toplevel| toplevel.wl_surface() == surface)
+                    .cloned()
+                {
+                    self.push_metadata_for(&toplevel);
+                }
             }
         }
     }
@@ -1150,6 +1182,14 @@ mod smithay_boundary {
 
         fn popup_destroyed(&mut self, surface: PopupSurface) {
             self.popups.remove(&Self::surface_key(surface.wl_surface()));
+        }
+
+        fn app_id_changed(&mut self, surface: ToplevelSurface) {
+            self.push_metadata_for(&surface);
+        }
+
+        fn title_changed(&mut self, surface: ToplevelSurface) {
+            self.push_metadata_for(&surface);
         }
 
         fn ack_configure(&mut self, surface: WlSurface, configure: Configure) {

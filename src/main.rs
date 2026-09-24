@@ -189,10 +189,23 @@ fn run_nested(
                     );
                 }
                 BackendEvent::WindowUnmapped(window) => runtime.forget_window_metadata(window),
+                BackendEvent::WindowMetadataChanged(window, metadata) => {
+                    let actions = runtime.update_window_metadata(window, &metadata);
+                    for action in &actions {
+                        dispatch_rule_action(
+                            runtime,
+                            core,
+                            window,
+                            action,
+                            server.logical_bounds(),
+                            logger,
+                        );
+                    }
+                }
                 BackendEvent::OutputAdded(_) => {
                     runtime.reapply_active(core, server.logical_bounds());
                 }
-                BackendEvent::OutputRemoved(_) | BackendEvent::WindowMetadataChanged(_, _) => {}
+                BackendEvent::OutputRemoved(_) => {}
             }
         },
         |server| {

@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): configure nested client resizes`.
+Last completed step: `feat(p6): route nested client metadata`.
 
 ## Resume next
 
@@ -35,6 +35,10 @@ The nested presenter now performs correct full redraws on a 16 ms frame budget, 
 ### P6 resize update
 
 Core scene geometry changes now send xdg toplevel resize configures when the extent changes. The lifecycle allows a mapped toplevel to enter a fresh configure/acknowledge/commit round trip, and the nested adapter sends the matching protocol serial. Real-client validation of buffer-release ordering remains unfinished.
+
+### P6 metadata update
+
+Nested xdg app-id and title changes now emit normalized metadata events. The composition root applies them through the existing runtime rule pipeline with current logical output bounds, including an initial snapshot after mapping. Real-client validation of buffer-release ordering remains unfinished.
 
 ## Phase checklist
 
