@@ -243,6 +243,7 @@ mod smithay_boundary {
     const NESTED_OUTPUT_WIDTH: u32 = 1280;
     const NESTED_OUTPUT_HEIGHT: u32 = 720;
     const CONFIGURE_TIMEOUT: Duration = Duration::from_secs(2);
+    const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
     /// Proves the optional feature resolves Smithay without exporting its types.
     pub(super) fn smithay_version_is_linked() -> bool {
@@ -459,6 +460,7 @@ mod smithay_boundary {
                 BackendError::new(format!("cannot initialize nested Winit host: {error}"))
             })?;
             loop {
+                let frame_started = Instant::now();
                 let output_size: Size<i32, Logical> = backend.window_size().to_logical(1);
                 let status = event_loop.dispatch_new_events(|event| {
                     forward_host_input(&mut self.state, event, output_size);
@@ -579,6 +581,9 @@ mod smithay_boundary {
                 })?;
                 self.state
                     .complete_frame(&frame_token, FrameCompletion::Presented);
+                if let Some(remaining) = FRAME_INTERVAL.checked_sub(frame_started.elapsed()) {
+                    std::thread::sleep(remaining);
+                }
             }
         }
     }

@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): support nested popup grabs`.
+Last completed step: `feat(p6): pace nested presentation`.
 
 ## Resume next
 
@@ -27,6 +27,10 @@ The live nested loop now expires unacknowledged toplevel configures after two se
 ### P6 popup grab update
 
 The nested adapter now enables Smithay's `desktop` helper module exclusively for protocol-correct popup management. It tracks popup commits and installs Smithay keyboard and pointer grabs after a valid explicit xdg popup grab, preserving dismissal and focus semantics. Client-buffer release ordering and presentation pacing remain unfinished.
+
+### P6 presentation update
+
+The nested presenter now performs correct full redraws on a 16 ms frame budget, sleeping only after a completed Winit submit. This bounds idle CPU use while preserving frame callback and ownership ordering. Client-buffer release validation against real applications remains unfinished.
 
 ## Phase checklist
 
