@@ -520,7 +520,7 @@ mod smithay_boundary {
             use smithay::reexports::winit::platform::pump_events::PumpStatus;
 
             let (mut backend, mut event_loop) = winit::init::<GlesRenderer>().map_err(|error| {
-                BackendError::new(format!("cannot initialize nested Winit host: {error}"))
+                BackendError::new(format!("cannot initialize nested Winit host: {error:?}"))
             })?;
             loop {
                 let frame_started = Instant::now();

@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `test(p6): cover nested feature builds`.
+Last completed step: `fix(p6): diagnose nested host startup`.
 
 ## Resume next
 
@@ -10,7 +10,7 @@ Continue **P6 — First visible Wayland session with OpenGL**. The optional `nes
 
 Popup placement now uses Smithay's protocol positioner calculation, including gravity and constraint-adjustment handling against the logical output bounds, and refreshes when core scene geometry changes. Toplevel surface trees now render above a two-pixel GLES border with active/inactive focus colors, alongside the existing compositor background. Pointer input and client cursor surfaces use the current output scale. Initial maps and pointer-button presses transfer keyboard focus to the appropriate client and emit normalized focus events so core focus and paint order remain synchronized; releases continue to reach the selected client or popup grab, and nested popup parents resolve back to their owning toplevel.
 
-The remaining P6 work is real-client validation of buffer release, texture lifetime, mapping, input, resize, close, invalid-config retention, and normal shutdown. This host cannot link a feature test executable because the system `libxkbcommon` development files are absent, and it has no installed Wayland sample client. `cargo check --features nested-wayland` and feature clippy are the available enabled-feature verification here.
+The remaining P6 work is real-client validation of buffer release, texture lifetime, mapping, input, resize, close, invalid-config retention, and normal shutdown. The default host lacks the linkable `libxkbcommon` development files, but the complete feature-enabled workspace suite now passes in a temporary Nix shell with `libxkbcommon`. A temporary Nix Wayland runtime library allows Winit initialization when added to `LD_LIBRARY_PATH`; in this automated host context the nested event loop then exits before a client can attach, so a stable graphical session is still required for the real-client exit gate.
 
 ## Phase checklist
 
