@@ -193,7 +193,14 @@ mod smithay_boundary {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use smithay::backend::renderer::utils::on_commit_buffer_handler;
+    use smithay::backend::renderer::element::Kind;
+    use smithay::backend::renderer::element::surface::{
+        WaylandSurfaceRenderElement, render_elements_from_surface_tree,
+    };
+    use smithay::backend::renderer::gles::GlesRenderer;
+    use smithay::backend::renderer::utils::{draw_render_elements, on_commit_buffer_handler};
+    use smithay::backend::renderer::{Color32F, Frame, Renderer};
+    use smithay::backend::winit;
     use smithay::delegate_compositor;
     use smithay::delegate_seat;
     use smithay::delegate_shm;
@@ -205,7 +212,7 @@ mod smithay_boundary {
     use smithay::reexports::wayland_server::protocol::wl_buffer;
     use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
     use smithay::reexports::wayland_server::{Client, Display, ListeningSocket, Resource};
-    use smithay::utils::Serial;
+    use smithay::utils::{Rectangle, Serial, Transform};
     use smithay::wayland::buffer::BufferHandler;
     use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
     use smithay::wayland::shell::xdg::{
@@ -327,6 +334,110 @@ mod smithay_boundary {
         pub fn take_events(&mut self) -> Vec<BackendEvent> {
             std::mem::take(&mut self.state.events)
         }
+
+        /// Runs the nested Winit host and presents complete Wayland surface
+        /// trees through the GLES renderer until the host window closes.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when the nested host, renderer, protocol dispatch,
+        /// or presentation backend fails.
+        pub fn run(mut self) -> Result<(), BackendError> {
+            use smithay::reexports::winit::platform::pump_events::PumpStatus;
+
+            let (mut backend, mut event_loop) = winit::init::<GlesRenderer>().map_err(|error| {
+                BackendError::new(format!("cannot initialize nested Winit host: {error}"))
+            })?;
+            loop {
+                let status = event_loop.dispatch_new_events(|_| {});
+                if matches!(status, PumpStatus::Exit(_)) {
+                    return Ok(());
+                }
+
+                self.accept_clients()?;
+                self.dispatch_clients()?;
+
+                let size = backend.window_size();
+                let damage = Rectangle::from_size(size);
+                {
+                    let (renderer, mut framebuffer) = backend.bind().map_err(|error| {
+                        BackendError::new(format!("cannot bind nested GLES frame: {error}"))
+                    })?;
+                    let elements = self
+                        .state
+                        .xdg_shell_state
+                        .toplevel_surfaces()
+                        .iter()
+                        .flat_map(|surface| {
+                            render_elements_from_surface_tree(
+                                renderer,
+                                surface.wl_surface(),
+                                (0, 0),
+                                1.0,
+                                1.0,
+                                Kind::Unspecified,
+                            )
+                        })
+                        .collect::<Vec<WaylandSurfaceRenderElement<GlesRenderer>>>();
+                    let mut frame = renderer
+                        .render(&mut framebuffer, size, Transform::Flipped180)
+                        .map_err(|error| {
+                            BackendError::new(format!("cannot start nested GLES frame: {error}"))
+                        })?;
+                    frame
+                        .clear(Color32F::new(0.05, 0.05, 0.08, 1.0), &[damage])
+                        .map_err(|error| {
+                            BackendError::new(format!("cannot clear nested GLES frame: {error}"))
+                        })?;
+                    draw_render_elements(&mut frame, 1.0, &elements, &[damage]).map_err(
+                        |error| {
+                            BackendError::new(format!("cannot draw nested surface tree: {error}"))
+                        },
+                    )?;
+                    // The nested Winit presenter performs the final display
+                    // synchronization in `submit`; no fence crosses this
+                    // adapter boundary.
+                    let _ = frame.finish().map_err(|error| {
+                        BackendError::new(format!("cannot finish nested GLES frame: {error}"))
+                    })?;
+                }
+
+                let frame_time = self.state.now().as_millis().try_into().unwrap_or(u32::MAX);
+                for surface in self.state.xdg_shell_state.toplevel_surfaces() {
+                    send_frame_callbacks(surface.wl_surface(), frame_time);
+                }
+                self.display.flush_clients().map_err(|error| {
+                    BackendError::new(format!("cannot flush nested frame callbacks: {error}"))
+                })?;
+                backend.submit(Some(&[damage])).map_err(|error| {
+                    BackendError::new(format!("cannot present nested GLES frame: {error}"))
+                })?;
+            }
+        }
+    }
+
+    fn send_frame_callbacks(surface: &WlSurface, time: u32) {
+        use smithay::wayland::compositor::{
+            SurfaceAttributes, TraversalAction, with_surface_tree_downward,
+        };
+
+        with_surface_tree_downward(
+            surface,
+            (),
+            |_, _, &()| TraversalAction::DoChildren(()),
+            |_surface, states, &()| {
+                for callback in states
+                    .cached_state
+                    .get::<SurfaceAttributes>()
+                    .current()
+                    .frame_callbacks
+                    .drain(..)
+                {
+                    callback.done(time);
+                }
+            },
+            |_, _, &()| true,
+        );
     }
 
     #[derive(Debug)]
