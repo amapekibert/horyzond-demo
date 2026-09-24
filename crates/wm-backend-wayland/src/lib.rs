@@ -205,12 +205,14 @@ mod smithay_boundary {
     use smithay::backend::renderer::{Color32F, Frame, Renderer};
     use smithay::backend::winit::{self, WinitEvent};
     use smithay::delegate_compositor;
+    use smithay::delegate_output;
     use smithay::delegate_seat;
     use smithay::delegate_shm;
     use smithay::delegate_xdg_shell;
     use smithay::input::keyboard::{FilterResult, KeyboardHandle, XkbConfig};
     use smithay::input::pointer::{ButtonEvent, CursorImageStatus, MotionEvent, PointerHandle};
     use smithay::input::{Seat, SeatHandler, SeatState};
+    use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
     use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
     use smithay::reexports::wayland_server::protocol::wl_buffer;
@@ -219,6 +221,7 @@ mod smithay_boundary {
     use smithay::utils::{Logical, Rectangle, Serial, Size, Transform};
     use smithay::wayland::buffer::BufferHandler;
     use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
+    use smithay::wayland::output::OutputHandler;
     use smithay::wayland::shell::xdg::{
         Configure, PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
     };
@@ -560,6 +563,7 @@ mod smithay_boundary {
         compositor_state: CompositorState,
         shm_state: ShmState,
         xdg_shell_state: XdgShellState,
+        _output: Output,
         seat_state: SeatState<Self>,
         keyboard: KeyboardHandle<Self>,
         pointer: PointerHandle<Self>,
@@ -583,10 +587,32 @@ mod smithay_boundary {
                     BackendError::new(format!("cannot create nested Wayland keyboard: {error}"))
                 })?;
             let pointer = seat.add_pointer();
+            let smithay_output = Output::new(
+                NESTED_OUTPUT_ID.into(),
+                PhysicalProperties {
+                    size: (510, 287).into(),
+                    subpixel: Subpixel::Unknown,
+                    make: "Horyzond".into(),
+                    model: "Nested Winit".into(),
+                },
+            );
+            smithay_output.create_global::<Self>(handle);
+            let mode = Mode {
+                size: (1280, 720).into(),
+                refresh: 60_000,
+            };
+            smithay_output.change_current_state(
+                Some(mode),
+                Some(Transform::Normal),
+                Some(Scale::Integer(1)),
+                Some((0, 0).into()),
+            );
+            smithay_output.set_preferred(mode);
             Ok(Self {
                 compositor_state: CompositorState::new::<Self>(handle),
                 shm_state: ShmState::new::<Self>(handle, Vec::new()),
                 xdg_shell_state: XdgShellState::new::<Self>(handle),
+                _output: smithay_output,
                 seat_state,
                 keyboard,
                 pointer,
@@ -644,6 +670,8 @@ mod smithay_boundary {
             &self.shm_state
         }
     }
+
+    impl OutputHandler for NestedState {}
 
     impl SeatHandler for NestedState {
         type KeyboardFocus = WlSurface;
@@ -752,6 +780,7 @@ mod smithay_boundary {
     }
 
     delegate_compositor!(NestedState);
+    delegate_output!(NestedState);
     delegate_seat!(NestedState);
     delegate_shm!(NestedState);
     delegate_xdg_shell!(NestedState);
