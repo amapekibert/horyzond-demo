@@ -193,6 +193,7 @@ mod smithay_boundary {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    use smithay::backend::input::{InputEvent, KeyboardKeyEvent};
     use smithay::backend::renderer::element::Kind;
     use smithay::backend::renderer::element::surface::{
         WaylandSurfaceRenderElement, render_elements_from_surface_tree,
@@ -200,11 +201,12 @@ mod smithay_boundary {
     use smithay::backend::renderer::gles::GlesRenderer;
     use smithay::backend::renderer::utils::{draw_render_elements, on_commit_buffer_handler};
     use smithay::backend::renderer::{Color32F, Frame, Renderer};
-    use smithay::backend::winit;
+    use smithay::backend::winit::{self, WinitEvent};
     use smithay::delegate_compositor;
     use smithay::delegate_seat;
     use smithay::delegate_shm;
     use smithay::delegate_xdg_shell;
+    use smithay::input::keyboard::{FilterResult, KeyboardHandle, XkbConfig};
     use smithay::input::pointer::CursorImageStatus;
     use smithay::input::{Seat, SeatHandler, SeatState};
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -261,7 +263,7 @@ mod smithay_boundary {
                 BackendError::new(format!("cannot create nested Wayland display: {error}"))
             })?;
             let handle = display.handle();
-            let state = NestedState::new(&handle);
+            let state = NestedState::new(&handle)?;
             let listener = ListeningSocket::bind(socket_name).map_err(|error| {
                 BackendError::new(format!(
                     "cannot bind nested Wayland socket {socket_name:?}: {error}"
@@ -349,7 +351,20 @@ mod smithay_boundary {
                 BackendError::new(format!("cannot initialize nested Winit host: {error}"))
             })?;
             loop {
-                let status = event_loop.dispatch_new_events(|_| {});
+                let keyboard = self.state.keyboard.clone();
+                let status = event_loop.dispatch_new_events(|event| {
+                    if let WinitEvent::Input(InputEvent::Keyboard { event }) = event {
+                        let time = self.state.now().as_millis().try_into().unwrap_or(u32::MAX);
+                        let _ = keyboard.input::<(), _>(
+                            &mut self.state,
+                            event.key_code(),
+                            event.state(),
+                            0.into(),
+                            time,
+                            |_, _, _| FilterResult::Forward,
+                        );
+                    }
+                });
                 if matches!(status, PumpStatus::Exit(_)) {
                     return Ok(());
                 }
@@ -446,6 +461,7 @@ mod smithay_boundary {
         shm_state: ShmState,
         xdg_shell_state: XdgShellState,
         seat_state: SeatState<Self>,
+        keyboard: KeyboardHandle<Self>,
         lifecycle: XdgLifecycle,
         windows: BTreeMap<u32, WindowId>,
         next_window: u64,
@@ -454,18 +470,28 @@ mod smithay_boundary {
     }
 
     impl NestedState {
-        fn new(handle: &smithay::reexports::wayland_server::DisplayHandle) -> Self {
-            Self {
+        fn new(
+            handle: &smithay::reexports::wayland_server::DisplayHandle,
+        ) -> Result<Self, BackendError> {
+            let mut seat_state = SeatState::new();
+            let mut seat = seat_state.new_wl_seat(handle, "horyzond");
+            let keyboard = seat
+                .add_keyboard(XkbConfig::default(), 200, 25)
+                .map_err(|error| {
+                    BackendError::new(format!("cannot create nested Wayland keyboard: {error}"))
+                })?;
+            Ok(Self {
                 compositor_state: CompositorState::new::<Self>(handle),
                 shm_state: ShmState::new::<Self>(handle, Vec::new()),
                 xdg_shell_state: XdgShellState::new::<Self>(handle),
-                seat_state: SeatState::new(),
+                seat_state,
+                keyboard,
                 lifecycle: XdgLifecycle::default(),
                 windows: BTreeMap::new(),
                 next_window: 1,
                 events: Vec::new(),
                 started_at: Instant::now(),
-            }
+            })
         }
 
         fn now(&self) -> Duration {
@@ -502,6 +528,8 @@ mod smithay_boundary {
             if let Some(window) = self.window_for(surface)
                 && self.lifecycle.commit(window).is_ok()
             {
+                let keyboard = self.keyboard.clone();
+                keyboard.set_focus(self, Some(surface.clone()), 0.into());
                 self.events.push(BackendEvent::WindowMapped(window));
             }
         }
