@@ -419,6 +419,19 @@ mod smithay_boundary {
             std::mem::take(&mut self.state.events)
         }
 
+        /// Flushes pending protocol events and releases nested client handles.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when the final protocol flush fails.
+        pub fn shutdown(&mut self) -> Result<(), BackendError> {
+            self.display.flush_clients().map_err(|error| {
+                BackendError::new(format!("cannot flush nested shutdown events: {error}"))
+            })?;
+            self.clients.clear();
+            Ok(())
+        }
+
         /// Runs the nested Winit host and presents complete Wayland surface
         /// trees through the GLES renderer until the host window closes.
         ///
@@ -469,6 +482,7 @@ mod smithay_boundary {
                     forward_host_input(&mut self.state, event, output_size);
                 });
                 if matches!(status, PumpStatus::Exit(_)) {
+                    self.shutdown()?;
                     return Ok(());
                 }
 

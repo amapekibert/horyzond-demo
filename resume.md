@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): route nested client metadata`.
+Last completed step: `feat(p6): shut down nested clients orderly`.
 
 ## Resume next
 
@@ -39,6 +39,10 @@ Core scene geometry changes now send xdg toplevel resize configures when the ext
 ### P6 metadata update
 
 Nested xdg app-id and title changes now emit normalized metadata events. The composition root applies them through the existing runtime rule pipeline with current logical output bounds, including an initial snapshot after mapping. Real-client validation of buffer-release ordering remains unfinished.
+
+### P6 shutdown update
+
+When the Winit host exits, the nested server now explicitly flushes pending protocol events and releases client handles before the display/socket are dropped. This gives normal nested shutdown an ordered protocol boundary. Real-client buffer-release validation remains blocked here by unavailable system `libxkbcommon` development files and no installed Wayland sample client.
 
 ## Phase checklist
 
