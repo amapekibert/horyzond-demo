@@ -1323,6 +1323,13 @@ mod smithay_boundary {
                     if self.focused_window == Some(window) {
                         self.focused_window = None;
                     }
+                    let keyboard = self.keyboard.clone();
+                    if keyboard
+                        .current_focus()
+                        .is_some_and(|focus| self.focus_window_for(&focus) == Some(window))
+                    {
+                        keyboard.set_focus(self, None, 0.into());
+                    }
                     self.events.push(BackendEvent::WindowUnmapped(window));
                     self.configure_unmapped_toplevel(window, geometry);
                 }
