@@ -170,6 +170,23 @@ impl XdgLifecycle {
             )))
         }
     }
+    /// Returns a mapped toplevel to its initial configure state after the
+    /// client commits a null buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the toplevel is unknown or was not mapped.
+    pub fn unmap(&mut self, window: WindowId) -> Result<(), BackendError> {
+        if self.states.get(&window) == Some(&XdgSurfaceState::Mapped) {
+            self.states.insert(window, XdgSurfaceState::New);
+            self.configures.forget(window);
+            Ok(())
+        } else {
+            Err(BackendError::new(format!(
+                "{window} cannot unmap in its current lifecycle state"
+            )))
+        }
+    }
     /// Forgets all protocol state for a destroyed toplevel.
     pub fn destroy(&mut self, window: WindowId) {
         self.states.remove(&window);
@@ -1046,6 +1063,29 @@ mod smithay_boundary {
             );
         }
 
+        fn configure_unmapped_toplevel(&mut self, window: WindowId, geometry: Rect) {
+            let Some(surface) = self
+                .xdg_shell_state
+                .toplevel_surfaces()
+                .iter()
+                .find(|surface| self.window_for(surface.wl_surface()) == Some(window))
+                .cloned()
+            else {
+                return;
+            };
+            let (width, height) = configure_extent(geometry);
+            surface.with_pending_state(|state| {
+                state.size = Some((width, height).into());
+            });
+            let serial = surface.send_configure();
+            let _ = self.lifecycle.configure_with_serial(
+                window,
+                geometry,
+                u64::from(u32::from(serial)),
+                self.now(),
+            );
+        }
+
         fn pointer_focus_at(
             &self,
             location: Point<f64, Logical>,
@@ -1265,10 +1305,30 @@ mod smithay_boundary {
         fn commit(&mut self, surface: &WlSurface) {
             on_commit_buffer_handler::<Self>(surface);
             self.popup_manager.commit(surface);
-            if Self::surface_has_buffer(surface)
-                && let Some(window) = self.window_for(surface)
-                && self.lifecycle.commit(window).is_ok()
-            {
+            let Some(window) = self.window_for(surface) else {
+                return;
+            };
+            if !Self::surface_has_buffer(surface) {
+                if self.lifecycle.unmap(window).is_ok() {
+                    let geometry = self.window_geometry.remove(&window).unwrap_or_else(|| {
+                        Rect::new(
+                            0.0,
+                            0.0,
+                            f64::from(INITIAL_WIDTH),
+                            f64::from(INITIAL_HEIGHT),
+                        )
+                        .expect("constant initial xdg geometry is valid")
+                    });
+                    self.window_order.retain(|candidate| *candidate != window);
+                    if self.focused_window == Some(window) {
+                        self.focused_window = None;
+                    }
+                    self.events.push(BackendEvent::WindowUnmapped(window));
+                    self.configure_unmapped_toplevel(window, geometry);
+                }
+                return;
+            }
+            if self.lifecycle.commit(window).is_ok() {
                 let keyboard = self.keyboard.clone();
                 keyboard.set_focus(self, Some(surface.clone()), 0.into());
                 self.events.push(BackendEvent::WindowMapped(window));
@@ -1562,5 +1622,28 @@ mod tests {
             .expect("serial acknowledgement");
         lifecycle.commit(window).expect("commit");
         assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::Mapped));
+    }
+
+    #[test]
+    fn xdg_lifecycle_requires_a_fresh_configure_after_unmapping() {
+        let mut lifecycle = XdgLifecycle::default();
+        let window = WindowId::new(9);
+        let geometry = Rect::new(0.0, 0.0, 100.0, 50.0).expect("geometry");
+        lifecycle.register(window).expect("register");
+        let initial = lifecycle
+            .configure(window, geometry, Duration::ZERO)
+            .expect("initial configure");
+        lifecycle
+            .acknowledge(initial)
+            .expect("initial acknowledgement");
+        lifecycle.commit(window).expect("initial commit");
+        lifecycle.unmap(window).expect("unmap");
+        assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::New));
+        assert!(lifecycle.commit(window).is_err());
+        assert!(
+            lifecycle
+                .configure(window, geometry, Duration::from_millis(1))
+                .is_ok()
+        );
     }
 }
