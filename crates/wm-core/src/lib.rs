@@ -136,8 +136,16 @@ impl CoreState {
                     return Err(CoreError::AlreadyMapped(window));
                 }
             }
-            BackendEvent::WindowMetadataChanged(window, _) if !self.windows.contains(&window) => {
+            BackendEvent::WindowFocused(window)
+            | BackendEvent::WindowMetadataChanged(window, _)
+                if !self.windows.contains(&window) =>
+            {
                 return Err(CoreError::NotMapped(window));
+            }
+            BackendEvent::WindowFocused(window) => {
+                let workspace = self.active_workspace_mut();
+                workspace.focused = Some(window);
+                let _ = workspace.scene.raise_window(window);
             }
             BackendEvent::WindowMetadataChanged(_, _) => {}
             BackendEvent::WindowUnmapped(window) => {
@@ -384,6 +392,30 @@ mod tests {
                 .scene
                 .pick(Point::new(1., 1.).expect("point"))
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn focused_backend_event_updates_focus_and_stacking() {
+        let mut core = CoreState::default();
+        let first = WindowId::new(1);
+        let second = WindowId::new(2);
+        core.apply_event(BackendEvent::WindowMapped(first))
+            .expect("map");
+        core.apply_event(BackendEvent::WindowMapped(second))
+            .expect("map");
+        core.set_geometry(first, Rect::new(0., 0., 20., 20.).expect("geometry"))
+            .expect("first geometry");
+        core.set_geometry(second, Rect::new(0., 0., 20., 20.).expect("geometry"))
+            .expect("second geometry");
+        core.apply_event(BackendEvent::WindowFocused(first))
+            .expect("focus event");
+        assert_eq!(core.active_workspace().focused(), Some(first));
+        assert_eq!(
+            core.active_workspace()
+                .scene
+                .pick(Point::new(1., 1.).expect("point")),
+            Some(first)
         );
     }
     #[test]

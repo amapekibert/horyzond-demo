@@ -205,7 +205,7 @@ fn run_nested(
                 BackendEvent::OutputAdded(_) => {
                     runtime.reapply_active(core, server.logical_bounds());
                 }
-                BackendEvent::OutputRemoved(_) => {}
+                BackendEvent::WindowFocused(_) | BackendEvent::OutputRemoved(_) => {}
             }
         },
         |server| {
@@ -318,7 +318,9 @@ fn run_headless_loop(
                         BackendEvent::WindowUnmapped(window) => {
                             runtime.forget_window_metadata(window);
                         }
-                        BackendEvent::OutputAdded(_) | BackendEvent::OutputRemoved(_) => {}
+                        BackendEvent::WindowFocused(_)
+                        | BackendEvent::OutputAdded(_)
+                        | BackendEvent::OutputRemoved(_) => {}
                     }
                 }
             }

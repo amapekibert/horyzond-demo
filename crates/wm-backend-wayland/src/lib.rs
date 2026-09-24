@@ -690,7 +690,10 @@ mod smithay_boundary {
                     .or_else(|| state.pointer_focus_at(pointer_location))
                 {
                     let keyboard = state.keyboard.clone();
-                    keyboard.set_focus(state, Some(surface), 0.into());
+                    keyboard.set_focus(state, Some(surface.clone()), 0.into());
+                    if let Some(window) = state.focus_window_for(&surface) {
+                        state.events.push(BackendEvent::WindowFocused(window));
+                    }
                 }
                 let pointer = state.pointer.clone();
                 pointer.button(
@@ -912,6 +915,17 @@ mod smithay_boundary {
 
         fn window_for(&self, surface: &WlSurface) -> Option<WindowId> {
             self.windows.get(&Self::surface_key(surface)).copied()
+        }
+
+        fn focus_window_for(&self, surface: &WlSurface) -> Option<WindowId> {
+            self.window_for(surface).or_else(|| {
+                self.xdg_shell_state
+                    .popup_surfaces()
+                    .iter()
+                    .find(|popup| popup.wl_surface() == surface)
+                    .and_then(PopupSurface::get_parent_surface)
+                    .and_then(|parent| self.window_for(&parent))
+            })
         }
 
         fn push_metadata_for(&mut self, surface: &ToplevelSurface) {

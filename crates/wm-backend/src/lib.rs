@@ -133,6 +133,8 @@ pub enum BackendEvent {
     OutputRemoved(OutputId),
     /// A client window became manageable.
     WindowMapped(WindowId),
+    /// A mapped client window received active seat focus.
+    WindowFocused(WindowId),
     /// Metadata changed for an already managed window.
     WindowMetadataChanged(WindowId, WindowMetadata),
     /// A client window disappeared.
