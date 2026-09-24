@@ -218,7 +218,7 @@ mod smithay_boundary {
     use smithay::reexports::wayland_server::protocol::wl_buffer;
     use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
     use smithay::reexports::wayland_server::{Client, Display, ListeningSocket, Resource};
-    use smithay::utils::{Logical, Rectangle, Serial, Size, Transform};
+    use smithay::utils::{Logical, Physical, Rectangle, Serial, Size, Transform};
     use smithay::wayland::buffer::BufferHandler;
     use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
     use smithay::wayland::output::OutputHandler;
@@ -257,7 +257,6 @@ mod smithay_boundary {
         listener: ListeningSocket,
         clients: Vec<Client>,
         state: NestedState,
-        output: OutputInfo,
     }
 
     impl NestedWaylandServer {
@@ -290,7 +289,6 @@ mod smithay_boundary {
                 listener,
                 clients: Vec::new(),
                 state,
-                output,
             })
         }
 
@@ -303,7 +301,7 @@ mod smithay_boundary {
         /// Returns the initial nested-host output exposed to the coordinator.
         #[must_use]
         pub fn output(&self) -> &OutputInfo {
-            &self.output
+            &self.state.output_info
         }
 
         /// Accepts all currently pending client connections.
@@ -482,8 +480,13 @@ mod smithay_boundary {
         event: WinitEvent,
         output_size: Size<i32, Logical>,
     ) {
-        let WinitEvent::Input(event) = event else {
-            return;
+        let event = match event {
+            WinitEvent::Resized { size, scale_factor } => {
+                state.update_output(size, scale_factor);
+                return;
+            }
+            WinitEvent::Input(event) => event,
+            _ => return,
         };
         let time = state.now().as_millis().try_into().unwrap_or(u32::MAX);
         match event {
@@ -563,7 +566,8 @@ mod smithay_boundary {
         compositor_state: CompositorState,
         shm_state: ShmState,
         xdg_shell_state: XdgShellState,
-        _output: Output,
+        output_info: OutputInfo,
+        output: Output,
         seat_state: SeatState<Self>,
         keyboard: KeyboardHandle<Self>,
         pointer: PointerHandle<Self>,
@@ -612,7 +616,8 @@ mod smithay_boundary {
                 compositor_state: CompositorState::new::<Self>(handle),
                 shm_state: ShmState::new::<Self>(handle, Vec::new()),
                 xdg_shell_state: XdgShellState::new::<Self>(handle),
-                _output: smithay_output,
+                output_info: output.clone(),
+                output: smithay_output,
                 seat_state,
                 keyboard,
                 pointer,
@@ -634,6 +639,42 @@ mod smithay_boundary {
 
         fn window_for(&self, surface: &WlSurface) -> Option<WindowId> {
             self.windows.get(&Self::surface_key(surface)).copied()
+        }
+
+        fn update_output(&mut self, size: Size<i32, Physical>, scale: f64) {
+            let (Ok(width), Ok(height)) = (u32::try_from(size.w), u32::try_from(size.h)) else {
+                return;
+            };
+            if width == 0 || height == 0 {
+                return;
+            }
+            let scale = if scale.is_finite() && scale > 0.0 {
+                scale
+            } else {
+                1.0
+            };
+            if self.output_info.physical_width == width
+                && self.output_info.physical_height == height
+                && (self.output_info.scale - scale).abs() <= f64::EPSILON
+            {
+                return;
+            }
+            let previous = self.output_info.clone();
+            let updated = OutputInfo::new(previous.id.as_str(), width, height, scale);
+            let mode = Mode {
+                size,
+                refresh: 60_000,
+            };
+            self.output.change_current_state(
+                Some(mode),
+                Some(Transform::Normal),
+                Some(Scale::Fractional(scale)),
+                Some((0, 0).into()),
+            );
+            self.output.set_preferred(mode);
+            self.output_info = updated.clone();
+            self.events.push(BackendEvent::OutputRemoved(previous.id));
+            self.events.push(BackendEvent::OutputAdded(updated));
         }
     }
 
