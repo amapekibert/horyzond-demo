@@ -484,7 +484,7 @@ mod smithay_boundary {
             })?;
             loop {
                 let frame_started = Instant::now();
-                let output_size: Size<i32, Logical> = backend.window_size().to_logical(1);
+                let output_size = self.state.logical_output_size();
                 let status = event_loop.dispatch_new_events(|event| {
                     forward_host_input(&mut self.state, event, output_size);
                 });
