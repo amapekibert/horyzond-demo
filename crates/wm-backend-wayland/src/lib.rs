@@ -226,9 +226,13 @@ mod smithay_boundary {
     use wm_backend::BackendEvent;
 
     use super::{BackendError, Rect, WindowId, XdgLifecycle};
+    use wm_types::OutputInfo;
 
     const INITIAL_WIDTH: i32 = 800;
     const INITIAL_HEIGHT: i32 = 600;
+    const NESTED_OUTPUT_ID: &str = "nested-0";
+    const NESTED_OUTPUT_WIDTH: u32 = 1280;
+    const NESTED_OUTPUT_HEIGHT: u32 = 720;
 
     /// Proves the optional feature resolves Smithay without exporting its types.
     pub(super) fn smithay_version_is_linked() -> bool {
@@ -250,6 +254,7 @@ mod smithay_boundary {
         listener: ListeningSocket,
         clients: Vec<Client>,
         state: NestedState,
+        output: OutputInfo,
     }
 
     impl NestedWaylandServer {
@@ -265,7 +270,13 @@ mod smithay_boundary {
                 BackendError::new(format!("cannot create nested Wayland display: {error}"))
             })?;
             let handle = display.handle();
-            let state = NestedState::new(&handle)?;
+            let output = OutputInfo::new(
+                NESTED_OUTPUT_ID,
+                NESTED_OUTPUT_WIDTH,
+                NESTED_OUTPUT_HEIGHT,
+                1.0,
+            );
+            let state = NestedState::new(&handle, output.clone())?;
             let listener = ListeningSocket::bind(socket_name).map_err(|error| {
                 BackendError::new(format!(
                     "cannot bind nested Wayland socket {socket_name:?}: {error}"
@@ -276,6 +287,7 @@ mod smithay_boundary {
                 listener,
                 clients: Vec::new(),
                 state,
+                output,
             })
         }
 
@@ -283,6 +295,12 @@ mod smithay_boundary {
         #[must_use]
         pub fn socket_name(&self) -> Option<&std::ffi::OsStr> {
             self.listener.socket_name()
+        }
+
+        /// Returns the initial nested-host output exposed to the coordinator.
+        #[must_use]
+        pub fn output(&self) -> &OutputInfo {
+            &self.output
         }
 
         /// Accepts all currently pending client connections.
@@ -555,6 +573,7 @@ mod smithay_boundary {
     impl NestedState {
         fn new(
             handle: &smithay::reexports::wayland_server::DisplayHandle,
+            output: OutputInfo,
         ) -> Result<Self, BackendError> {
             let mut seat_state = SeatState::new();
             let mut seat = seat_state.new_wl_seat(handle, "horyzond");
@@ -574,7 +593,7 @@ mod smithay_boundary {
                 lifecycle: XdgLifecycle::default(),
                 windows: BTreeMap::new(),
                 next_window: 1,
-                events: Vec::new(),
+                events: vec![BackendEvent::OutputAdded(output)],
                 started_at: Instant::now(),
             })
         }
