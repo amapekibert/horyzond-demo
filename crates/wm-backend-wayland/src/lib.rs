@@ -488,6 +488,17 @@ mod smithay_boundary {
                             Kind::Unspecified,
                         ));
                     }
+                    for popup in self.state.xdg_shell_state.popup_surfaces() {
+                        let location = self.state.popup_location(popup.wl_surface());
+                        elements.extend(render_elements_from_surface_tree(
+                            renderer,
+                            popup.wl_surface(),
+                            physical_popup_location(location, self.state.output_info.scale),
+                            1.0,
+                            1.0,
+                            Kind::Unspecified,
+                        ));
+                    }
                     if let Some((surface, location)) = self.state.cursor_surface_with_location() {
                         elements.extend(render_elements_from_surface_tree(
                             renderer,
@@ -627,6 +638,19 @@ mod smithay_boundary {
         }
     }
 
+    fn physical_popup_location(location: Point<i32, Logical>, scale: f64) -> Point<i32, Physical> {
+        let x = (f64::from(location.x) * scale)
+            .round()
+            .clamp(f64::from(i32::MIN), f64::from(i32::MAX));
+        let y = (f64::from(location.y) * scale)
+            .round()
+            .clamp(f64::from(i32::MIN), f64::from(i32::MAX));
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            (x as i32, y as i32).into()
+        }
+    }
+
     fn send_frame_callbacks(surface: &WlSurface, time: u32) {
         use smithay::wayland::compositor::{
             SurfaceAttributes, TraversalAction, with_surface_tree_downward,
@@ -669,6 +693,7 @@ mod smithay_boundary {
         windows: BTreeMap<u32, WindowId>,
         window_geometry: BTreeMap<WindowId, Rect>,
         window_order: Vec<WindowId>,
+        popups: BTreeMap<u32, Point<i32, Logical>>,
         frame_ledger: FrameLedger,
         next_scene_generation: u64,
         next_window: u64,
@@ -727,6 +752,7 @@ mod smithay_boundary {
                 windows: BTreeMap::new(),
                 window_geometry: BTreeMap::new(),
                 window_order: Vec::new(),
+                popups: BTreeMap::new(),
                 frame_ledger: FrameLedger::default(),
                 next_scene_generation: 0,
                 next_window: 1,
@@ -775,6 +801,31 @@ mod smithay_boundary {
                         })
                 })?
             })
+        }
+
+        fn popup_location(&self, surface: &WlSurface) -> Point<i32, Logical> {
+            self.popups
+                .get(&Self::surface_key(surface))
+                .copied()
+                .unwrap_or_else(|| (0, 0).into())
+        }
+
+        fn place_popup(&mut self, surface: &PopupSurface, positioner: &PositionerState) {
+            let parent: Point<i32, Logical> = surface
+                .get_parent_surface()
+                .and_then(|parent| self.window_for(&parent))
+                .and_then(|window| self.window_geometry.get(&window))
+                .map_or((0, 0).into(), |geometry| {
+                    // Layout geometry is logical and finite; positioner values are protocol i32s.
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        (geometry.x.round() as i32, geometry.y.round() as i32).into()
+                    }
+                });
+            self.popups.insert(
+                Self::surface_key(surface.wl_surface()),
+                parent + positioner.anchor_rect.loc + positioner.offset,
+            );
         }
 
         fn acquire_frame(&mut self) -> FrameToken {
@@ -941,7 +992,10 @@ mod smithay_boundary {
             );
         }
 
-        fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {}
+        fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
+            self.place_popup(&surface, &positioner);
+            let _ = surface.send_configure();
+        }
 
         fn grab(
             &mut self,
@@ -953,10 +1007,16 @@ mod smithay_boundary {
 
         fn reposition_request(
             &mut self,
-            _surface: PopupSurface,
-            _positioner: PositionerState,
-            _token: u32,
+            surface: PopupSurface,
+            positioner: PositionerState,
+            token: u32,
         ) {
+            self.place_popup(&surface, &positioner);
+            let _ = surface.send_repositioned(token);
+        }
+
+        fn popup_destroyed(&mut self, surface: PopupSurface) {
+            self.popups.remove(&Self::surface_key(surface.wl_surface()));
         }
 
         fn ack_configure(&mut self, surface: WlSurface, configure: Configure) {
