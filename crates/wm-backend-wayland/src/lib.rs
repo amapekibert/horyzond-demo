@@ -193,7 +193,9 @@ mod smithay_boundary {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use smithay::backend::input::{InputEvent, KeyboardKeyEvent};
+    use smithay::backend::input::{
+        AbsolutePositionEvent, InputEvent, KeyboardKeyEvent, PointerButtonEvent,
+    };
     use smithay::backend::renderer::element::Kind;
     use smithay::backend::renderer::element::surface::{
         WaylandSurfaceRenderElement, render_elements_from_surface_tree,
@@ -207,14 +209,14 @@ mod smithay_boundary {
     use smithay::delegate_shm;
     use smithay::delegate_xdg_shell;
     use smithay::input::keyboard::{FilterResult, KeyboardHandle, XkbConfig};
-    use smithay::input::pointer::CursorImageStatus;
+    use smithay::input::pointer::{ButtonEvent, CursorImageStatus, MotionEvent, PointerHandle};
     use smithay::input::{Seat, SeatHandler, SeatState};
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
     use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
     use smithay::reexports::wayland_server::protocol::wl_buffer;
     use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
     use smithay::reexports::wayland_server::{Client, Display, ListeningSocket, Resource};
-    use smithay::utils::{Rectangle, Serial, Transform};
+    use smithay::utils::{Logical, Rectangle, Serial, Size, Transform};
     use smithay::wayland::buffer::BufferHandler;
     use smithay::wayland::compositor::{CompositorClientState, CompositorHandler, CompositorState};
     use smithay::wayland::shell::xdg::{
@@ -351,19 +353,9 @@ mod smithay_boundary {
                 BackendError::new(format!("cannot initialize nested Winit host: {error}"))
             })?;
             loop {
-                let keyboard = self.state.keyboard.clone();
+                let output_size: Size<i32, Logical> = backend.window_size().to_logical(1);
                 let status = event_loop.dispatch_new_events(|event| {
-                    if let WinitEvent::Input(InputEvent::Keyboard { event }) = event {
-                        let time = self.state.now().as_millis().try_into().unwrap_or(u32::MAX);
-                        let _ = keyboard.input::<(), _>(
-                            &mut self.state,
-                            event.key_code(),
-                            event.state(),
-                            0.into(),
-                            time,
-                            |_, _, _| FilterResult::Forward,
-                        );
-                    }
+                    forward_host_input(&mut self.state, event, output_size);
                 });
                 if matches!(status, PumpStatus::Exit(_)) {
                     return Ok(());
@@ -431,6 +423,63 @@ mod smithay_boundary {
         }
     }
 
+    fn forward_host_input(
+        state: &mut NestedState,
+        event: WinitEvent,
+        output_size: Size<i32, Logical>,
+    ) {
+        let WinitEvent::Input(event) = event else {
+            return;
+        };
+        let time = state.now().as_millis().try_into().unwrap_or(u32::MAX);
+        match event {
+            InputEvent::Keyboard { event } => {
+                let keyboard = state.keyboard.clone();
+                let _ = keyboard.input::<(), _>(
+                    state,
+                    event.key_code(),
+                    event.state(),
+                    0.into(),
+                    time,
+                    |_, _, _| FilterResult::Forward,
+                );
+            }
+            InputEvent::PointerMotionAbsolute { event } => {
+                let location = event.position_transformed(output_size);
+                let focus = state
+                    .xdg_shell_state
+                    .toplevel_surfaces()
+                    .first()
+                    .map(|surface| (surface.wl_surface().clone(), (0.0, 0.0).into()));
+                let pointer = state.pointer.clone();
+                pointer.motion(
+                    state,
+                    focus,
+                    &MotionEvent {
+                        location,
+                        serial: 0.into(),
+                        time,
+                    },
+                );
+                pointer.frame(state);
+            }
+            InputEvent::PointerButton { event } => {
+                let pointer = state.pointer.clone();
+                pointer.button(
+                    state,
+                    &ButtonEvent {
+                        button: event.button_code(),
+                        state: event.state(),
+                        serial: 0.into(),
+                        time,
+                    },
+                );
+                pointer.frame(state);
+            }
+            _ => {}
+        }
+    }
+
     fn send_frame_callbacks(surface: &WlSurface, time: u32) {
         use smithay::wayland::compositor::{
             SurfaceAttributes, TraversalAction, with_surface_tree_downward,
@@ -462,6 +511,7 @@ mod smithay_boundary {
         xdg_shell_state: XdgShellState,
         seat_state: SeatState<Self>,
         keyboard: KeyboardHandle<Self>,
+        pointer: PointerHandle<Self>,
         lifecycle: XdgLifecycle,
         windows: BTreeMap<u32, WindowId>,
         next_window: u64,
@@ -480,12 +530,14 @@ mod smithay_boundary {
                 .map_err(|error| {
                     BackendError::new(format!("cannot create nested Wayland keyboard: {error}"))
                 })?;
+            let pointer = seat.add_pointer();
             Ok(Self {
                 compositor_state: CompositorState::new::<Self>(handle),
                 shm_state: ShmState::new::<Self>(handle, Vec::new()),
                 xdg_shell_state: XdgShellState::new::<Self>(handle),
                 seat_state,
                 keyboard,
+                pointer,
                 lifecycle: XdgLifecycle::default(),
                 windows: BTreeMap::new(),
                 next_window: 1,
