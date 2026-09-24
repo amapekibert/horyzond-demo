@@ -116,6 +116,27 @@ impl XdgLifecycle {
             )))
         }
     }
+    /// Accepts the current configure serial supplied by xdg-shell.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown, stale, or out-of-order acknowledgement.
+    pub fn acknowledge_serial(
+        &mut self,
+        window: WindowId,
+        serial: u64,
+    ) -> Result<(), BackendError> {
+        if self.states.get(&window) == Some(&XdgSurfaceState::AwaitingConfigure)
+            && self.configures.acknowledge_serial(window, serial)
+        {
+            self.states.insert(window, XdgSurfaceState::ReadyToCommit);
+            Ok(())
+        } else {
+            Err(BackendError::new(format!(
+                "invalid configure acknowledgement {serial} for {window}"
+            )))
+        }
+    }
     /// Expires unanswered configure requests and returns each timed-out request.
     ///
     /// An expired toplevel returns to `New`, allowing the adapter to issue a
@@ -1368,18 +1389,9 @@ mod smithay_boundary {
             let Some(window) = self.window_for(&surface) else {
                 return;
             };
-            let transaction = wm_backend::ConfigureTransaction {
-                window,
-                serial: u64::from(u32::from(configure.serial)),
-                geometry: Rect::new(
-                    0.0,
-                    0.0,
-                    f64::from(INITIAL_WIDTH),
-                    f64::from(INITIAL_HEIGHT),
-                )
-                .expect("constant initial xdg geometry is valid"),
-            };
-            let _ = self.lifecycle.acknowledge(transaction);
+            let _ = self
+                .lifecycle
+                .acknowledge_serial(window, u64::from(u32::from(configure.serial)));
         }
 
         fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
@@ -1510,6 +1522,26 @@ mod tests {
             .expect("configure");
         assert_eq!(configure.serial, 42);
         lifecycle.acknowledge(configure).expect("acknowledge");
+        lifecycle.commit(window).expect("commit");
+        assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::Mapped));
+    }
+
+    #[test]
+    fn xdg_lifecycle_accepts_a_protocol_serial_without_reconstructing_geometry() {
+        let mut lifecycle = XdgLifecycle::default();
+        let window = WindowId::new(8);
+        lifecycle.register(window).expect("register");
+        lifecycle
+            .configure_with_serial(
+                window,
+                Rect::new(15.0, 20.0, 320.0, 240.0).expect("resized geometry"),
+                99,
+                Duration::ZERO,
+            )
+            .expect("configure");
+        lifecycle
+            .acknowledge_serial(window, 99)
+            .expect("serial acknowledgement");
         lifecycle.commit(window).expect("commit");
         assert_eq!(lifecycle.state(window), Some(XdgSurfaceState::Mapped));
     }

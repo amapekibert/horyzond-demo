@@ -100,6 +100,24 @@ impl ConfigureLedger {
             false
         }
     }
+    /// Acknowledges the latest request for a window by its protocol serial.
+    ///
+    /// Native protocols such as xdg-shell return only the serial in their
+    /// acknowledgement callback. The adapter still owns the requested
+    /// geometry in this ledger, so it must not reconstruct that geometry from
+    /// protocol data merely to acknowledge the request.
+    pub fn acknowledge_serial(&mut self, window: WindowId, serial: u64) -> bool {
+        if self
+            .pending
+            .get(&window)
+            .is_some_and(|pending| pending.transaction.serial == serial)
+        {
+            self.pending.remove(&window);
+            true
+        } else {
+            false
+        }
+    }
     /// Removes and returns transactions older than the supplied timeout.
     pub fn expire(&mut self, now: Duration, timeout: Duration) -> Vec<ConfigureTransaction> {
         let expired = self
