@@ -209,9 +209,12 @@ mod smithay_boundary {
     use smithay::delegate_seat;
     use smithay::delegate_shm;
     use smithay::delegate_xdg_shell;
+    use smithay::desktop::{
+        PopupKeyboardGrab, PopupKind, PopupManager, PopupPointerGrab, find_popup_root_surface,
+    };
     use smithay::input::keyboard::{FilterResult, KeyboardHandle, XkbConfig};
     use smithay::input::pointer::{
-        ButtonEvent, CursorImageStatus, CursorImageSurfaceData, MotionEvent, PointerHandle,
+        ButtonEvent, CursorImageStatus, CursorImageSurfaceData, Focus, MotionEvent, PointerHandle,
     };
     use smithay::input::{Seat, SeatHandler, SeatState};
     use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
@@ -724,6 +727,7 @@ mod smithay_boundary {
         output_info: OutputInfo,
         output: Output,
         seat_state: SeatState<Self>,
+        seat: Seat<Self>,
         keyboard: KeyboardHandle<Self>,
         pointer: PointerHandle<Self>,
         cursor_status: CursorImageStatus,
@@ -735,6 +739,7 @@ mod smithay_boundary {
         window_geometry: BTreeMap<WindowId, Rect>,
         window_order: Vec<WindowId>,
         popups: BTreeMap<u32, PopupPlacement>,
+        popup_manager: PopupManager,
         frame_ledger: FrameLedger,
         next_scene_generation: u64,
         next_window: u64,
@@ -789,6 +794,7 @@ mod smithay_boundary {
                 output_info: output.clone(),
                 output: smithay_output,
                 seat_state,
+                seat,
                 keyboard,
                 pointer,
                 cursor_status: CursorImageStatus::default_named(),
@@ -800,6 +806,7 @@ mod smithay_boundary {
                 window_geometry: BTreeMap::new(),
                 window_order: Vec::new(),
                 popups: BTreeMap::new(),
+                popup_manager: PopupManager::default(),
                 frame_ledger: FrameLedger::default(),
                 next_scene_generation: 0,
                 next_window: 1,
@@ -987,6 +994,7 @@ mod smithay_boundary {
 
         fn commit(&mut self, surface: &WlSurface) {
             on_commit_buffer_handler::<Self>(surface);
+            self.popup_manager.commit(surface);
             if let Some(window) = self.window_for(surface)
                 && self.lifecycle.commit(window).is_ok()
             {
@@ -1063,15 +1071,30 @@ mod smithay_boundary {
 
         fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
             self.place_popup(&surface, &positioner);
+            let _ = self.popup_manager.track_popup(surface.clone().into());
             let _ = surface.send_configure();
         }
 
         fn grab(
             &mut self,
-            _surface: PopupSurface,
+            surface: PopupSurface,
             _seat: smithay::reexports::wayland_server::protocol::wl_seat::WlSeat,
-            _serial: Serial,
+            serial: Serial,
         ) {
+            let popup: PopupKind = surface.into();
+            let Ok(root) = find_popup_root_surface(&popup) else {
+                return;
+            };
+            let Ok(grab) = self
+                .popup_manager
+                .grab_popup::<Self>(root, popup, &self.seat, serial)
+            else {
+                return;
+            };
+            let keyboard = self.keyboard.clone();
+            keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
+            let pointer = self.pointer.clone();
+            pointer.set_grab(self, PopupPointerGrab::new(&grab), serial, Focus::Keep);
         }
 
         fn reposition_request(

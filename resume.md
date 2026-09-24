@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): recover stalled nested configures`.
+Last completed step: `feat(p6): support nested popup grabs`.
 
 ## Resume next
 
@@ -23,6 +23,10 @@ Pointer hit testing now checks rendered xdg popups in protocol stacking order be
 ### P6 configure recovery update
 
 The live nested loop now expires unacknowledged toplevel configures after two seconds and reissues the same geometry with a fresh protocol serial, so a slow or lost client acknowledgement cannot permanently block a future commit. Explicit popup grabs, client-buffer release ordering, and presentation pacing remain unfinished.
+
+### P6 popup grab update
+
+The nested adapter now enables Smithay's `desktop` helper module exclusively for protocol-correct popup management. It tracks popup commits and installs Smithay keyboard and pointer grabs after a valid explicit xdg popup grab, preserving dismissal and focus semantics. Client-buffer release ordering and presentation pacing remain unfinished.
 
 ## Phase checklist
 

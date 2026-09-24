@@ -16,7 +16,7 @@ nested = ["dep:smithay"]
 wm-backend = { path = "../wm-backend" }
 wm-render = { path = "../wm-render" }
 wm-types = { path = "../wm-types" }
-smithay = { version = "0.7.0", default-features = false, features = ["backend_winit", "renderer_gl", "wayland_frontend"], optional = true }
+smithay = { version = "0.7.0", default-features = false, features = ["backend_winit", "desktop", "renderer_gl", "wayland_frontend"], optional = true }
 
 [lints]
 workspace = true
