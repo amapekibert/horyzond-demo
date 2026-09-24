@@ -1225,6 +1225,7 @@ mod smithay_boundary {
                 let keyboard = self.keyboard.clone();
                 keyboard.set_focus(self, Some(surface.clone()), 0.into());
                 self.events.push(BackendEvent::WindowMapped(window));
+                self.events.push(BackendEvent::WindowFocused(window));
                 if let Some(toplevel) = self
                     .xdg_shell_state
                     .toplevel_surfaces()
