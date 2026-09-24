@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `fix(p6): clear focus on nested unmap`.
+Last completed step: `test(p6): cover nested feature builds`.
 
 ## Resume next
 

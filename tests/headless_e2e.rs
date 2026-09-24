@@ -13,7 +13,11 @@ impl Drop for Server {
 }
 
 fn root() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
+    #[cfg(unix)]
+    let temporary_directory = std::path::PathBuf::from("/tmp");
+    #[cfg(not(unix))]
+    let temporary_directory = std::env::temp_dir();
+    temporary_directory.join(format!(
         "horyzond-headless-e2e-{}",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

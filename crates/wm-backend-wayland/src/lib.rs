@@ -1518,9 +1518,17 @@ mod tests {
     use wm_types::{Rect, WindowId};
 
     #[test]
+    #[cfg(not(feature = "nested"))]
     fn default_build_keeps_the_nested_runtime_disabled() {
         assert!(!nested_runtime_available());
         assert!(require_nested_runtime().is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "nested")]
+    fn nested_build_exposes_the_nested_runtime() {
+        assert!(nested_runtime_available());
+        assert!(require_nested_runtime().is_ok());
     }
 
     #[test]
