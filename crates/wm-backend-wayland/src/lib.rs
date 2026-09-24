@@ -223,7 +223,9 @@ mod smithay_boundary {
         WaylandSurfaceRenderElement, render_elements_from_surface_tree,
     };
     use smithay::backend::renderer::gles::GlesRenderer;
-    use smithay::backend::renderer::utils::{draw_render_elements, on_commit_buffer_handler};
+    use smithay::backend::renderer::utils::{
+        RendererSurfaceStateUserData, draw_render_elements, on_commit_buffer_handler,
+    };
     use smithay::backend::renderer::{Color32F, Frame, Renderer};
     use smithay::backend::winit::{self, WinitEvent};
     use smithay::delegate_compositor;
@@ -1227,6 +1229,21 @@ mod smithay_boundary {
             .unwrap_or_else(|| (0, 0).into());
             Some((surface, self.pointer_location - hotspot))
         }
+
+        fn surface_has_buffer(surface: &WlSurface) -> bool {
+            with_states(surface, |states| {
+                states
+                    .data_map
+                    .get::<RendererSurfaceStateUserData>()
+                    .is_some_and(|state| {
+                        state
+                            .lock()
+                            .expect("renderer surface attributes lock")
+                            .buffer()
+                            .is_some()
+                    })
+            })
+        }
     }
 
     impl BufferHandler for NestedState {
@@ -1248,7 +1265,8 @@ mod smithay_boundary {
         fn commit(&mut self, surface: &WlSurface) {
             on_commit_buffer_handler::<Self>(surface);
             self.popup_manager.commit(surface);
-            if let Some(window) = self.window_for(surface)
+            if Self::surface_has_buffer(surface)
+                && let Some(window) = self.window_for(surface)
                 && self.lifecycle.commit(window).is_ok()
             {
                 let keyboard = self.keyboard.clone();
