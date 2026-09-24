@@ -6,7 +6,7 @@ The project is licensed under [WTFPL](LICENSE). The repositories in `examples/` 
 
 ## Current status
 
-P0 through P4 are implemented. The repository has a modular headless foundation, bounded Lua configuration reload, deterministic workspace lifecycle state, camera projection, scene snapshots, picking, damage tracking, and independent restricted Lua layout providers. This is still not yet a usable compositor.
+P0 through P5 are implemented. The repository has a modular headless foundation, bounded Lua configuration reload, deterministic workspace lifecycle state, camera projection, scene snapshots, picking, damage tracking, independent restricted Lua layout providers, modal interaction, rules, hooks, and IPC. P6 is in progress: an optional Smithay/Winit/GLES nested Wayland session implements the first visible compositor path, while real-client validation remains the exit gate.
 
 ## Development roadmap
 
@@ -18,7 +18,7 @@ P0 through P4 are implemented. The repository has a modular headless foundation,
 | P3 | Headless core, workspaces, camera, scene | Complete |
 | P4 | Provider-defined layout runtime and recovery | Complete |
 | P5 | Modes, rules, hooks, IPC, `horyctl` | Complete |
-| P6 | Nested Wayland session and OpenGL renderer | Planned |
+| P6 | Nested Wayland session and OpenGL renderer | In progress |
 | P7 | DRM/KMS, libinput, standalone Wayland | Planned |
 | P8 | Desktop protocols and spatial spawn workflow | Planned |
 | P9 | Shader reload, damage, performance, direct scanout | Planned |
@@ -57,6 +57,15 @@ cargo run --bin horyctl -- config check
 
 The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--config-dir` is supplied), starts session diagnostics, and runs a headless configuration polling loop. Use `--once` for bootstrap-only verification. It does not yet create a visible compositor session.
 
+The optional nested compositor path is enabled explicitly and keeps the default build free of graphics dependencies:
+
+```sh
+cargo check --features nested-wayland
+cargo run --features nested-wayland -- --nested --config-dir /tmp/horyzond-nested
+```
+
+The nested run requires a graphical host, a linkable `libxkbcommon` development library, and a Wayland client to exercise it. See [resume.md](resume.md) for the current P6 validation status.
+
 ## Development TODO
 
 - [x] Create platform-neutral module boundaries.
@@ -81,7 +90,8 @@ The current `cargo run` command bootstraps `~/.config/horyzond/` (unless `--conf
 - [x] Preserve provider histories and opaque layout selections per workspace.
 - [x] Build P5 modal input, rules, hooks, and `horyctl` IPC.
 - [x] Add a neutral modal input state machine with safe binding replacement.
-- [ ] Add Wayland, OpenGL, X11, and Vulkan adapters in roadmap order.
+- [x] Add the optional nested Wayland/OpenGL adapter path behind feature gates.
+- [ ] Complete P6 real-client validation, then add the remaining adapters in roadmap order.
 
 ## Contributing workflow
 

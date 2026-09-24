@@ -2,7 +2,7 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `feat(p6): highlight nested focus`.
+Last completed step: `docs(p6): document nested session progress`.
 
 ## Resume next
 
