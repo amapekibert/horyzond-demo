@@ -306,6 +306,28 @@ mod smithay_boundary {
             &self.state.output_info
         }
 
+        /// Returns the current nested output bounds in logical coordinates.
+        ///
+        /// # Panics
+        ///
+        /// Panics only if the internally validated output state is corrupted.
+        #[must_use]
+        pub fn logical_bounds(&self) -> Rect {
+            Rect::new(
+                0.0,
+                0.0,
+                f64::from(self.state.output_info.physical_width) / self.state.output_info.scale,
+                f64::from(self.state.output_info.physical_height) / self.state.output_info.scale,
+            )
+            .expect("validated nested output has positive logical bounds")
+        }
+
+        /// Replaces the normalized scene placement used to draw and hit-test
+        /// mapped xdg toplevels. Entries are ordered back-to-front.
+        pub fn synchronize_window_geometry(&mut self, windows: &[(WindowId, Rect)]) {
+            self.state.synchronize_window_geometry(windows);
+        }
+
         /// Accepts all currently pending client connections.
         ///
         /// # Errors
@@ -380,9 +402,9 @@ mod smithay_boundary {
         /// or presentation backend fails.
         pub fn run_with_events(
             self,
-            on_event: impl FnMut(BackendEvent),
+            mut on_event: impl FnMut(BackendEvent),
         ) -> Result<(), BackendError> {
-            self.run_with_callbacks(on_event, || {})
+            self.run_with_callbacks(|_, event| on_event(event), |_| {})
         }
 
         /// Runs the nested host and invokes callbacks after protocol events
@@ -394,8 +416,8 @@ mod smithay_boundary {
         /// or presentation backend fails.
         pub fn run_with_callbacks(
             mut self,
-            mut on_event: impl FnMut(BackendEvent),
-            mut on_tick: impl FnMut(),
+            mut on_event: impl FnMut(&mut Self, BackendEvent),
+            mut on_tick: impl FnMut(&mut Self),
         ) -> Result<(), BackendError> {
             use smithay::reexports::winit::platform::pump_events::PumpStatus;
 
@@ -414,9 +436,9 @@ mod smithay_boundary {
                 self.accept_clients()?;
                 self.dispatch_clients()?;
                 for event in self.take_events() {
-                    on_event(event);
+                    on_event(&mut self, event);
                 }
-                on_tick();
+                on_tick(&mut self);
                 if let Some(cursor) = self.state.take_cursor_status() {
                     match cursor {
                         CursorImageStatus::Hidden | CursorImageStatus::Surface(_) => {
@@ -438,22 +460,31 @@ mod smithay_boundary {
                     let (renderer, mut framebuffer) = backend.bind().map_err(|error| {
                         BackendError::new(format!("cannot bind nested GLES frame: {error}"))
                     })?;
-                    let mut elements = self
-                        .state
-                        .xdg_shell_state
-                        .toplevel_surfaces()
-                        .iter()
-                        .flat_map(|surface| {
-                            render_elements_from_surface_tree(
-                                renderer,
-                                surface.wl_surface(),
-                                (0, 0),
-                                1.0,
-                                1.0,
-                                Kind::Unspecified,
-                            )
-                        })
-                        .collect::<Vec<WaylandSurfaceRenderElement<GlesRenderer>>>();
+                    let mut elements = Vec::<WaylandSurfaceRenderElement<GlesRenderer>>::new();
+                    for window in &self.state.window_order {
+                        let Some(geometry) = self.state.window_geometry.get(window) else {
+                            continue;
+                        };
+                        let Some(surface) = self
+                            .state
+                            .xdg_shell_state
+                            .toplevel_surfaces()
+                            .iter()
+                            .find(|surface| {
+                                self.state.window_for(surface.wl_surface()) == Some(*window)
+                            })
+                        else {
+                            continue;
+                        };
+                        elements.extend(render_elements_from_surface_tree(
+                            renderer,
+                            surface.wl_surface(),
+                            physical_surface_location(*geometry, self.state.output_info.scale),
+                            1.0,
+                            1.0,
+                            Kind::Unspecified,
+                        ));
+                    }
                     if let Some((surface, location)) = self.state.cursor_surface_with_location() {
                         elements.extend(render_elements_from_surface_tree(
                             renderer,
@@ -530,11 +561,7 @@ mod smithay_boundary {
             InputEvent::PointerMotionAbsolute { event } => {
                 let location = event.position_transformed(output_size);
                 state.pointer_location = logical_pointer_location(location, output_size);
-                let focus = state
-                    .xdg_shell_state
-                    .toplevel_surfaces()
-                    .first()
-                    .map(|surface| (surface.wl_surface().clone(), (0.0, 0.0).into()));
+                let focus = state.pointer_focus_at(location);
                 let pointer = state.pointer.clone();
                 pointer.motion(
                     state,
@@ -574,6 +601,20 @@ mod smithay_boundary {
         let y = location.y.clamp(0.0, maximum_y).floor();
         // The values were clamped to the representable `i32` output bounds.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            (x as i32, y as i32).into()
+        }
+    }
+
+    fn physical_surface_location(geometry: Rect, scale: f64) -> Point<i32, Physical> {
+        let x = (geometry.x * scale)
+            .round()
+            .clamp(f64::from(i32::MIN), f64::from(i32::MAX));
+        let y = (geometry.y * scale)
+            .round()
+            .clamp(f64::from(i32::MIN), f64::from(i32::MAX));
+        // The values were clamped to the representable physical coordinate range.
+        #[allow(clippy::cast_possible_truncation)]
         {
             (x as i32, y as i32).into()
         }
@@ -619,6 +660,8 @@ mod smithay_boundary {
         cursor_changed: bool,
         lifecycle: XdgLifecycle,
         windows: BTreeMap<u32, WindowId>,
+        window_geometry: BTreeMap<WindowId, Rect>,
+        window_order: Vec<WindowId>,
         next_window: u64,
         events: Vec<BackendEvent>,
         started_at: Instant,
@@ -673,6 +716,8 @@ mod smithay_boundary {
                 cursor_changed: false,
                 lifecycle: XdgLifecycle::default(),
                 windows: BTreeMap::new(),
+                window_geometry: BTreeMap::new(),
+                window_order: Vec::new(),
                 next_window: 1,
                 events: vec![BackendEvent::OutputAdded(output)],
                 started_at: Instant::now(),
@@ -689,6 +734,36 @@ mod smithay_boundary {
 
         fn window_for(&self, surface: &WlSurface) -> Option<WindowId> {
             self.windows.get(&Self::surface_key(surface)).copied()
+        }
+
+        fn synchronize_window_geometry(&mut self, windows: &[(WindowId, Rect)]) {
+            self.window_geometry = windows.iter().copied().collect();
+            self.window_order = windows.iter().map(|(window, _)| *window).collect();
+        }
+
+        fn pointer_focus_at(
+            &self,
+            location: Point<f64, Logical>,
+        ) -> Option<(WlSurface, Point<f64, Logical>)> {
+            self.window_order.iter().rev().find_map(|window| {
+                let geometry = self.window_geometry.get(window)?;
+                let contains = location.x >= geometry.x
+                    && location.x < geometry.x + geometry.width
+                    && location.y >= geometry.y
+                    && location.y < geometry.y + geometry.height;
+                contains.then(|| {
+                    self.xdg_shell_state
+                        .toplevel_surfaces()
+                        .iter()
+                        .find(|surface| self.window_for(surface.wl_surface()) == Some(*window))
+                        .map(|surface| {
+                            (
+                                surface.wl_surface().clone(),
+                                (geometry.x, geometry.y).into(),
+                            )
+                        })
+                })?
+            })
         }
 
         fn update_output(&mut self, size: Size<i32, Physical>, scale: f64) {
@@ -826,6 +901,8 @@ mod smithay_boundary {
                 return;
             }
             self.windows.insert(Self::surface_key(&wl_surface), window);
+            self.window_geometry.insert(window, geometry);
+            self.window_order.push(window);
             surface.with_pending_state(|state| {
                 state.states.set(xdg_toplevel::State::Activated);
                 state.size = Some((INITIAL_WIDTH, INITIAL_HEIGHT).into());
@@ -882,6 +959,8 @@ mod smithay_boundary {
             let key = Self::surface_key(surface.wl_surface());
             if let Some(window) = self.windows.remove(&key) {
                 self.lifecycle.destroy(window);
+                self.window_geometry.remove(&window);
+                self.window_order.retain(|candidate| *candidate != window);
                 self.events.push(BackendEvent::WindowUnmapped(window));
             }
         }

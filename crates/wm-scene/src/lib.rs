@@ -147,6 +147,26 @@ impl Scene {
         self.generation += 1;
         true
     }
+    /// Returns window rectangles in back-to-front paint order.
+    ///
+    /// Native presentation adapters use this normalized view to keep their
+    /// surface placement and hit testing consistent with the core scene.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if internal paint-order invariants have been violated.
+    #[must_use]
+    pub fn ordered_windows(&self) -> impl ExactSizeIterator<Item = (WindowId, Rect)> + '_ {
+        self.order.iter().map(|window| {
+            (
+                *window,
+                *self
+                    .windows
+                    .get(window)
+                    .expect("paint order only contains mapped windows"),
+            )
+        })
+    }
     /// Replaces paint order when it lists every mapped scene window exactly once.
     ///
     /// Returns `false` without mutation for incomplete, duplicate, or unknown IDs.
@@ -302,6 +322,13 @@ mod tests {
         assert_eq!(
             scene.pick(Point::new(6.0, 6.0).expect("point")),
             Some(WindowId::new(1))
+        );
+        assert_eq!(
+            scene
+                .ordered_windows()
+                .map(|(window, _)| window)
+                .collect::<Vec<_>>(),
+            vec![WindowId::new(2), WindowId::new(1)]
         );
     }
 

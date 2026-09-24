@@ -170,30 +170,48 @@ fn run_nested(
         )
     );
     if let Err(error) = server.run_with_callbacks(
-        |event| {
+        |server, event| {
             let (configuration, runtime, core, logger, hooks) = &mut *services.borrow_mut();
             if let Err(error) = core.apply_event(event.clone()) {
                 let _ = logger.record(LogLevel::Warn, "backend", &error.to_string());
                 return;
             }
             match event {
-                BackendEvent::WindowMapped(window) => dispatch_hook(
-                    hooks,
-                    configuration,
-                    HookEvent::Committed,
-                    "on_window_open",
-                    &serde_json::json!({ "window_id": window.get() }),
-                    logger,
-                ),
+                BackendEvent::WindowMapped(window) => {
+                    runtime.reapply_active(core, server.logical_bounds());
+                    dispatch_hook(
+                        hooks,
+                        configuration,
+                        HookEvent::Committed,
+                        "on_window_open",
+                        &serde_json::json!({ "window_id": window.get() }),
+                        logger,
+                    );
+                }
                 BackendEvent::WindowUnmapped(window) => runtime.forget_window_metadata(window),
-                BackendEvent::OutputAdded(_)
-                | BackendEvent::OutputRemoved(_)
-                | BackendEvent::WindowMetadataChanged(_, _) => {}
+                BackendEvent::OutputAdded(_) => {
+                    runtime.reapply_active(core, server.logical_bounds());
+                }
+                BackendEvent::OutputRemoved(_) | BackendEvent::WindowMetadataChanged(_, _) => {}
             }
         },
-        || {
+        |server| {
             let (configuration, runtime, core, logger, hooks) = &mut *services.borrow_mut();
-            poll_nested_services(configuration, runtime, core, hooks, logger, ipc);
+            poll_nested_services(
+                configuration,
+                runtime,
+                core,
+                hooks,
+                logger,
+                ipc,
+                server.logical_bounds(),
+            );
+            let windows = core
+                .active_workspace()
+                .scene
+                .ordered_windows()
+                .collect::<Vec<_>>();
+            server.synchronize_window_geometry(&windows);
         },
     ) {
         exit_with_error(&error.to_string());
@@ -208,8 +226,8 @@ fn poll_nested_services(
     hooks: &mut HookDispatcher,
     logger: &mut SessionLogger,
     ipc: &IpcServer,
+    bounds: Rect,
 ) {
-    let bounds = Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant nested bounds");
     if let Err(error) =
         ipc.poll(|request| handle_ipc(&request, configuration, runtime, core, hooks, logger))
     {
