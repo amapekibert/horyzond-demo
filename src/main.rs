@@ -224,7 +224,7 @@ fn run_nested(
                 .scene
                 .ordered_windows()
                 .collect::<Vec<_>>();
-            server.synchronize_window_geometry(&windows);
+            server.synchronize_window_geometry(&windows, core.active_workspace().focused());
         },
     ) {
         exit_with_error(&error.to_string());

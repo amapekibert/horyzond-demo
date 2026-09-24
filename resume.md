@@ -2,13 +2,13 @@
 
 Last completed phase: **P5 — Modal interaction, rules, hooks, IPC, and CLI**.
 
-Last completed step: `fix(p6): refresh nested popup placement`.
+Last completed step: `feat(p6): highlight nested focus`.
 
 ## Resume next
 
 Continue **P6 — First visible Wayland session with OpenGL**. The optional `nested-wayland` feature builds a Smithay/Winit/GLES compositor while the default workspace remains graphics-free. It publishes compositor, shared-memory, seat, xdg-shell, and output globals; handles xdg toplevel and popup configure/acknowledge/commit ordering; renders toplevel, subsurface, popup, and client-cursor trees; sends toplevel and popup frame callbacks; uses native popup grabs; forwards keyboard and pointer input; reports metadata to rules; synchronizes layout geometry and client resize configures; retries stalled configures; paces full redraws at 60 Hz; tracks neutral frame ownership through presentation; and shuts down clients in protocol order. The root runtime routes nested lifecycle and metadata through core, rules, hooks, IPC, and live configuration reload.
 
-Popup placement now uses Smithay's protocol positioner calculation, including gravity and constraint-adjustment handling against the logical output bounds, and refreshes when core scene geometry changes. Toplevel surface trees now render above a two-pixel GLES accent border, alongside the existing compositor background. Pointer-button activation transfers keyboard focus to the topmost popup or toplevel under the cursor and emits a normalized focus event so core focus and paint order remain synchronized; nested popup parents resolve back to their owning toplevel.
+Popup placement now uses Smithay's protocol positioner calculation, including gravity and constraint-adjustment handling against the logical output bounds, and refreshes when core scene geometry changes. Toplevel surface trees now render above a two-pixel GLES border with active/inactive focus colors, alongside the existing compositor background. Pointer-button activation transfers keyboard focus to the topmost popup or toplevel under the cursor and emits a normalized focus event so core focus and paint order remain synchronized; nested popup parents resolve back to their owning toplevel.
 
 The remaining P6 work is real-client validation of buffer release, texture lifetime, mapping, input, resize, close, invalid-config retention, and normal shutdown. This host cannot link a feature test executable because the system `libxkbcommon` development files are absent, and it has no installed Wayland sample client. `cargo check --features nested-wayland` and feature clippy are the available enabled-feature verification here.
 

@@ -335,8 +335,13 @@ mod smithay_boundary {
 
         /// Replaces the normalized scene placement used to draw and hit-test
         /// mapped xdg toplevels. Entries are ordered back-to-front.
-        pub fn synchronize_window_geometry(&mut self, windows: &[(WindowId, Rect)]) {
-            self.state.synchronize_window_geometry(windows);
+        pub fn synchronize_window_geometry(
+            &mut self,
+            windows: &[(WindowId, Rect)],
+            focused_window: Option<WindowId>,
+        ) {
+            self.state
+                .synchronize_window_geometry(windows, focused_window);
         }
 
         /// Accepts all currently pending client connections.
@@ -534,7 +539,11 @@ mod smithay_boundary {
                         else {
                             continue;
                         };
-                        borders.push(border_buffer(*geometry, self.state.output_info.scale));
+                        borders.push(border_buffer(
+                            *geometry,
+                            self.state.output_info.scale,
+                            self.state.focused_window == Some(*window),
+                        ));
                         elements.extend(render_elements_from_surface_tree(
                             renderer,
                             surface.wl_surface(),
@@ -743,6 +752,7 @@ mod smithay_boundary {
     fn border_buffer(
         geometry: Rect,
         scale: f64,
+        focused: bool,
     ) -> (Option<SolidColorBuffer>, Point<i32, Physical>) {
         let base = physical_surface_location(geometry, scale);
         let location = (base.x - BORDER_WIDTH, base.y - BORDER_WIDTH).into();
@@ -758,7 +768,14 @@ mod smithay_boundary {
             height as i32 + BORDER_WIDTH * 2,
         );
         (
-            Some(SolidColorBuffer::new(size, [0.22, 0.48, 0.82, 1.0])),
+            Some(SolidColorBuffer::new(
+                size,
+                if focused {
+                    [0.22, 0.48, 0.82, 1.0]
+                } else {
+                    [0.16, 0.18, 0.23, 1.0]
+                },
+            )),
             location,
         )
     }
@@ -828,6 +845,7 @@ mod smithay_boundary {
         windows: BTreeMap<u32, WindowId>,
         window_geometry: BTreeMap<WindowId, Rect>,
         window_order: Vec<WindowId>,
+        focused_window: Option<WindowId>,
         popups: BTreeMap<u32, PopupPlacement>,
         popup_manager: PopupManager,
         frame_ledger: FrameLedger,
@@ -896,6 +914,7 @@ mod smithay_boundary {
                 windows: BTreeMap::new(),
                 window_geometry: BTreeMap::new(),
                 window_order: Vec::new(),
+                focused_window: None,
                 popups: BTreeMap::new(),
                 popup_manager: PopupManager::default(),
                 frame_ledger: FrameLedger::default(),
@@ -949,7 +968,11 @@ mod smithay_boundary {
                 .push(BackendEvent::WindowMetadataChanged(window, metadata));
         }
 
-        fn synchronize_window_geometry(&mut self, windows: &[(WindowId, Rect)]) {
+        fn synchronize_window_geometry(
+            &mut self,
+            windows: &[(WindowId, Rect)],
+            focused_window: Option<WindowId>,
+        ) {
             let changed = windows
                 .iter()
                 .filter_map(|(window, geometry)| {
@@ -959,6 +982,7 @@ mod smithay_boundary {
                 .collect::<Vec<_>>();
             self.window_geometry = windows.iter().copied().collect();
             self.window_order = windows.iter().map(|(window, _)| *window).collect();
+            self.focused_window = focused_window;
             for (window, geometry) in changed {
                 self.reconfigure_mapped_toplevel(window, geometry);
             }
