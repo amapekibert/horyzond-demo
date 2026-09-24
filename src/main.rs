@@ -90,6 +90,13 @@ fn main() {
         &serde_json::json!({ "generation": configuration.generation() }),
         &mut logger,
     );
+    let ipc = match config.ipc_socket_path().and_then(|path| {
+        IpcServer::bind(path)
+            .map_err(|error| wm_config::ConfigError::Io(std::io::Error::other(error)))
+    }) {
+        Ok(server) => server,
+        Err(error) => exit_with_error(&error.to_string()),
+    };
 
     if let Some(socket_name) = options.nested_socket {
         #[cfg(feature = "nested-wayland")]
@@ -101,6 +108,7 @@ fn main() {
                 &mut core,
                 &mut logger,
                 &mut hooks,
+                &ipc,
             );
             if let Err(error) = logger.close() {
                 exit_with_error(&error.to_string());
@@ -117,13 +125,6 @@ fn main() {
         eprintln!("failed to initialize the headless backend: {error}");
         std::process::exit(1);
     }
-    let ipc = match config.ipc_socket_path().and_then(|path| {
-        IpcServer::bind(path)
-            .map_err(|error| wm_config::ConfigError::Io(std::io::Error::other(error)))
-    }) {
-        Ok(server) => server,
-        Err(error) => exit_with_error(&error.to_string()),
-    };
     println!(
         "Horyzond headless runtime is ready: {} output(s), {} layout, renderer capabilities: {:?}",
         backend.outputs().len(),
@@ -154,7 +155,9 @@ fn run_nested(
     core: &mut CoreState,
     logger: &mut SessionLogger,
     hooks: &mut HookDispatcher,
+    ipc: &IpcServer,
 ) {
+    let services = std::cell::RefCell::new((configuration, runtime, core, logger, hooks));
     let server = match NestedWaylandServer::bind(socket_name) {
         Ok(server) => server,
         Err(error) => exit_with_error(&error.to_string()),
@@ -166,27 +169,83 @@ fn run_nested(
             |name| name.to_string_lossy().into_owned(),
         )
     );
-    if let Err(error) = server.run_with_events(|event| {
-        if let Err(error) = core.apply_event(event.clone()) {
-            let _ = logger.record(LogLevel::Warn, "backend", &error.to_string());
-            return;
-        }
-        match event {
-            BackendEvent::WindowMapped(window) => dispatch_hook(
-                hooks,
-                configuration,
-                HookEvent::Committed,
-                "on_window_open",
-                &serde_json::json!({ "window_id": window.get() }),
-                logger,
-            ),
-            BackendEvent::WindowUnmapped(window) => runtime.forget_window_metadata(window),
-            BackendEvent::OutputAdded(_)
-            | BackendEvent::OutputRemoved(_)
-            | BackendEvent::WindowMetadataChanged(_, _) => {}
-        }
-    }) {
+    if let Err(error) = server.run_with_callbacks(
+        |event| {
+            let (configuration, runtime, core, logger, hooks) = &mut *services.borrow_mut();
+            if let Err(error) = core.apply_event(event.clone()) {
+                let _ = logger.record(LogLevel::Warn, "backend", &error.to_string());
+                return;
+            }
+            match event {
+                BackendEvent::WindowMapped(window) => dispatch_hook(
+                    hooks,
+                    configuration,
+                    HookEvent::Committed,
+                    "on_window_open",
+                    &serde_json::json!({ "window_id": window.get() }),
+                    logger,
+                ),
+                BackendEvent::WindowUnmapped(window) => runtime.forget_window_metadata(window),
+                BackendEvent::OutputAdded(_)
+                | BackendEvent::OutputRemoved(_)
+                | BackendEvent::WindowMetadataChanged(_, _) => {}
+            }
+        },
+        || {
+            let (configuration, runtime, core, logger, hooks) = &mut *services.borrow_mut();
+            poll_nested_services(configuration, runtime, core, hooks, logger, ipc);
+        },
+    ) {
         exit_with_error(&error.to_string());
+    }
+}
+
+#[cfg(feature = "nested-wayland")]
+fn poll_nested_services(
+    configuration: &mut ConfigManager,
+    runtime: &mut LayoutRuntime,
+    core: &mut CoreState,
+    hooks: &mut HookDispatcher,
+    logger: &mut SessionLogger,
+    ipc: &IpcServer,
+) {
+    let bounds = Rect::new(0.0, 0.0, 1280.0, 720.0).expect("constant nested bounds");
+    if let Err(error) =
+        ipc.poll(|request| handle_ipc(&request, configuration, runtime, core, hooks, logger))
+    {
+        let _ = logger.record(LogLevel::Warn, "ipc", &error.to_string());
+    }
+    match configuration.reload_if_changed() {
+        ReloadOutcome::Unchanged => {}
+        ReloadOutcome::Rejected { diagnostic } => {
+            let _ = logger.record(LogLevel::Warn, "reload", &diagnostic);
+        }
+        ReloadOutcome::Applied { generation } => match runtime.synchronize(configuration) {
+            Ok(LayoutRuntimeUpdate::Applied { providers, .. }) => {
+                runtime.reapply_active(core, bounds);
+                let _ = logger.record(
+                    LogLevel::Info,
+                    "reload",
+                    &format!(
+                        "applied generation {generation}: {} provider(s) updated, {} retained",
+                        providers.applied.len(),
+                        providers.retained.len()
+                    ),
+                );
+                dispatch_hook(
+                    hooks,
+                    configuration,
+                    HookEvent::Reload,
+                    "on_reload",
+                    &serde_json::json!({ "generation": generation }),
+                    logger,
+                );
+            }
+            Ok(LayoutRuntimeUpdate::Unchanged) => {}
+            Err(error) => {
+                let _ = logger.record(LogLevel::Error, "reload", &error.to_string());
+            }
+        },
     }
 }
 

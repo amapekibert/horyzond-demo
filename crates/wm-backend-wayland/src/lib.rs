@@ -358,8 +358,23 @@ mod smithay_boundary {
         /// Returns an error when the nested host, renderer, protocol dispatch,
         /// or presentation backend fails.
         pub fn run_with_events(
+            self,
+            on_event: impl FnMut(BackendEvent),
+        ) -> Result<(), BackendError> {
+            self.run_with_callbacks(on_event, || {})
+        }
+
+        /// Runs the nested host and invokes callbacks after protocol events
+        /// and once per completed event-loop iteration.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when the nested host, renderer, protocol dispatch,
+        /// or presentation backend fails.
+        pub fn run_with_callbacks(
             mut self,
             mut on_event: impl FnMut(BackendEvent),
+            mut on_tick: impl FnMut(),
         ) -> Result<(), BackendError> {
             use smithay::reexports::winit::platform::pump_events::PumpStatus;
 
@@ -380,6 +395,7 @@ mod smithay_boundary {
                 for event in self.take_events() {
                     on_event(event);
                 }
+                on_tick();
 
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
