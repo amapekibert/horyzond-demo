@@ -6,69 +6,30 @@ Last completed step: `fix(p6): complete nested popup frames`.
 
 ## Resume next
 
-Continue **P6 — First visible Wayland session with OpenGL**. P5 is complete: configured Normal, Insert, Passthrough, Move, Resize, Layout Select, and pending-spawn workflows have transitions, cancellation or recovery bindings, consumed press/release tracking, and visible IPC status. Rules are deterministic and non-recursive; their actions safely create pending launches, select layouts, cancel pending launches, or remain provider-opaque. Lifecycle hooks run after their committed boundaries under quotas. The Unix IPC transport is versioned, framed, bounded, same-user only, and exercised by `horyctl`. The automated headless end-to-end test starts the compositor, selects all four shipped layout profiles through modal input, validates recovery from every configured mode, and checks pending-spawn cancellation. P6 now has `wm-backend-wayland`, an optional Smithay 0.7 adapter boundary whose `nested` feature selects only `backend_winit`, `renderer_gl`, and `wayland_frontend`; the default workspace still has no active graphics dependency. The neutral backend contract has a shared monotonic configure ledger: requests are serial-bearing, newest-request-wins, explicitly acknowledged, expire by adapter-selected timeout, and are forgotten on unmap. `wm-render` has a frame ledger that distinguishes acquired targets, render completion, and presentation completion; presentation completion alone releases ownership. The feature-gated `NestedWaylandServer` publishes compositor, shared-memory, seat, xdg-shell, and `wl_output` globals; accepts and dispatches Wayland clients; maps real xdg configure serials to `XdgLifecycle`; emits a `nested-0` output-added event before clients can map; synchronizes Winit host resize to both `wl_output` metadata and a normalized output remove/add transition; emits normalized map/unmap events only after correct acknowledgement and commit ordering; runs a Winit/GLES loop that renders surface trees, client cursor surfaces (with Smithay hotspot), sends frame callbacks, and submits complete frames; forwards nested host keyboard, absolute-pointer-motion, and pointer-button events through its seat; and forwards hidden/named cursor requests to the Winit host. Client cursor surfaces hide the host cursor to avoid duplication. The root binary exposes this path only with `--features nested-wayland`, selected by `--nested` or `--nested-socket NAME`; it routes lifecycle events to core and hooks. The nested loop polls IPC and transactional configuration reload on each completed iteration, preserving the control/reload behavior of headless mode. Pointer focus currently targets the first toplevel at the initial origin because scene geometry is not yet connected; do not treat this as multi-window hit testing. The default workspace tests and strict clippy pass; `cargo check --features nested-wayland` and feature clippy pass, while the nested test binary cannot link here because the host lacks the system `libxkbcommon` development library required by Smithay/winit. Next, route geometry-aware input through the composition root and tie presenter completion to the neutral frame ledger.
+Continue **P6 — First visible Wayland session with OpenGL**. The optional `nested-wayland` feature builds a Smithay/Winit/GLES compositor while the default workspace remains graphics-free. It publishes compositor, shared-memory, seat, xdg-shell, and output globals; handles xdg toplevel and popup configure/acknowledge/commit ordering; renders toplevel, subsurface, popup, and client-cursor trees; sends toplevel and popup frame callbacks; uses native popup grabs; forwards keyboard and pointer input; reports metadata to rules; synchronizes layout geometry and client resize configures; retries stalled configures; paces full redraws at 60 Hz; tracks neutral frame ownership through presentation; and shuts down clients in protocol order. The root runtime routes nested lifecycle and metadata through core, rules, hooks, IPC, and live configuration reload.
 
-### P6 update
-
-The nested adapter now consumes core scene rectangles in normalized back-to-front paint order. Mapping a window reapplies the active layout to current logical output bounds; surface trees render at those positions; and pointer focus selects the topmost containing toplevel with its matching local origin. This supersedes the earlier note that pointer focus was limited to the first toplevel. Each nested frame now acquires a neutral frame-ledger token, records rendering completion after GLES finish, and releases ownership only after Winit submission succeeds. Remaining P6 work is client-buffer release ordering, popup/subsurface positioning, and presentation pacing.
-
-### P6 popup update
-
-Xdg popups now receive initial and reposition configures, render relative to their mapped toplevel parent plus the positioner anchor and offset, and clear their placement on destruction. Popup input/grab routing, client-buffer release ordering, and presentation pacing remain unfinished.
-
-### P6 popup input update
-
-Pointer hit testing now checks rendered xdg popups in protocol stacking order before their toplevel parent, using the popup positioner rectangle as its local focus bounds. Explicit popup grabs, client-buffer release ordering, and presentation pacing remain unfinished.
-
-### P6 configure recovery update
-
-The live nested loop now expires unacknowledged toplevel configures after two seconds and reissues the same geometry with a fresh protocol serial, so a slow or lost client acknowledgement cannot permanently block a future commit. Explicit popup grabs, client-buffer release ordering, and presentation pacing remain unfinished.
-
-### P6 popup grab update
-
-The nested adapter now enables Smithay's `desktop` helper module exclusively for protocol-correct popup management. It tracks popup commits and installs Smithay keyboard and pointer grabs after a valid explicit xdg popup grab, preserving dismissal and focus semantics. Client-buffer release ordering and presentation pacing remain unfinished.
-
-### P6 presentation update
-
-The nested presenter now performs correct full redraws on a 16 ms frame budget, sleeping only after a completed Winit submit. This bounds idle CPU use while preserving frame callback and ownership ordering. Client-buffer release validation against real applications remains unfinished.
-
-### P6 resize update
-
-Core scene geometry changes now send xdg toplevel resize configures when the extent changes. The lifecycle allows a mapped toplevel to enter a fresh configure/acknowledge/commit round trip, and the nested adapter sends the matching protocol serial. Real-client validation of buffer-release ordering remains unfinished.
-
-### P6 metadata update
-
-Nested xdg app-id and title changes now emit normalized metadata events. The composition root applies them through the existing runtime rule pipeline with current logical output bounds, including an initial snapshot after mapping. Real-client validation of buffer-release ordering remains unfinished.
-
-### P6 shutdown update
-
-When the Winit host exits, the nested server now explicitly flushes pending protocol events and releases client handles before the display/socket are dropped. This gives normal nested shutdown an ordered protocol boundary. Real-client buffer-release validation remains blocked here by unavailable system `libxkbcommon` development files and no installed Wayland sample client.
-
-### P6 popup frame update
-
-Every completed nested presentation now sends frame callbacks for xdg popup surface trees as well as toplevel trees, so popup clients can schedule their next render. Real-client buffer-release validation remains blocked here by unavailable system `libxkbcommon` development files and no installed Wayland sample client.
+The remaining P6 work is real-client validation of buffer release, texture lifetime, mapping, input, resize, close, invalid-config retention, and normal shutdown. This host cannot link a feature test executable because the system `libxkbcommon` development files are absent, and it has no installed Wayland sample client. `cargo check --features nested-wayland` and feature clippy are the available enabled-feature verification here.
 
 ## Phase checklist
 
 | Phase | Status | Remaining work |
 | --- | --- | --- |
-| P0 | Complete | No functional work. Revisit contracts only when real P6 frame ownership proves an adjustment necessary. |
-| P1 | Complete | P1 has bootstrap, an exclusive runtime lock, structured `latest.log`, previous-log archival, explicit crash reports, a process panic hook, and an unclean-session marker. A bounded background log writer is deferred to P10 hardening. |
-| P2 | Complete | Lua 5.4 is restricted to table/string/math/UTF-8 libraries; imports stay beneath the config root, are cached per candidate, and are polled for changes. OS notification debounce and event-loop integration remain future work. |
-| P3 | Complete | `wm-core` manages deterministic map/unmap, focus, world geometry, and outputs. `wm-scene` handles camera projection/inversion, picking, snapshots, and coalesced damage. Desired-versus-committed configure state and real event-loop dispatch remain for later protocol work. |
-| P4 | Complete | Arbitrary providers have bounded calculation and interaction callbacks, validated output, isolated last-good reload handling, generic recovery, data-only state migration, cross-provider history, and independent per-workspace selection. |
-| P5 | Complete | Modal workflows, deterministic rules and action dispatch, lifecycle hooks, bounded same-user IPC, offline and online `horyctl` commands, and an automated headless scenario covering every shipped layout profile and modal recovery path. |
-| P6 | In progress | `wm-backend-wayland` provides an optional Smithay 0.7 nested adapter boundary and compiles both disabled and enabled. A shared configure ledger provides serials, supersession, acknowledgement, expiry, and unmap cleanup; headless exercises it deterministically. The renderer frame ledger distinguishes render from presentation completion and retains ownership until presentation completes. `NestedWaylandServer` publishes compositor, shared-memory, seat, xdg-shell, and `wl_output` globals; it reports the initial `nested-0` output lifecycle before clients map, synchronizes host resize to `wl_output` and normalized output transitions, accepts/dispatches clients, maps Smithay configure serials into `XdgLifecycle`, emits normalized lifecycle events, renders surface trees and client cursor surfaces with frame callbacks, forwards nested host keyboard and pointer input, and applies hidden/named cursor requests to the Winit host. The `nested-wayland` root feature plus `--nested`/`--nested-socket` select this runtime and route lifecycle events to core and hooks; the nested event loop polls IPC and transactional configuration reload. Pointer hit testing is temporarily limited to the first toplevel at its initial origin. Default tests and nested-feature checks/clippy pass; enabled tests cannot link on this host until `libxkbcommon` development files are installed. Add geometry-aware input routing and complete adapter-backed frame/buffer ownership while retaining the independent headless path. |
-| P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, and suspend/resume. |
+| P0 | Complete | Revisit only if proven native contracts require adjustments. |
+| P1 | Complete | Background log writer and release hardening defer to P10. |
+| P2 | Complete | OS notification debounce and native event-loop watch integration defer to later platform work. |
+| P3 | Complete | Real protocol dispatch is supplied by P6; desired-versus-committed state evolves with native adapters. |
+| P4 | Complete | Maintain provider isolation and recovery while integrating native sessions. |
+| P5 | Complete | Keep headless end-to-end coverage intact as native paths evolve. |
+| P6 | In progress | Complete real-client validation and confirm buffer-release/texture-lifetime behavior with `libxkbcommon` development files and a Wayland client available. |
+| P7 | Not started | DRM/KMS, session/seat, GBM/EGL, libinput, hotplug, VT switching, suspend/resume, and multi-output policy. |
 | P8 | Not started | Layer shell, desktop protocols, clipboard, drag-and-drop, lock policy, and safe pending-spawn association. |
-| P9 | Not started | Shader assets/reload, damage correctness, scaling, frame pacing, and safe direct scanout. |
+| P9 | Not started | Shader assets/reload, damage optimization, scaling, measured pacing, and direct scanout. |
 | P10 | Not started | Persistent state, soak/failure testing, packaging, documentation, and release hardening. |
-| P11 | Not started | Xwayland, native X11 management, then optional X11 compositing as a separate capability. |
+| P11 | Not started | Xwayland, native X11 management, and optional X11 compositing. |
 | P12 | Not started | Vulkan device/pipeline/synchronization implementation and GL/Vulkan parity scenarios. |
 
 ## Repository state notes
 
-- `examples/` contains local upstream reference repositories. Do not modify, compile, package, or include them in Horyzond commits unless the user explicitly requests it.
-- P0 has no external crate dependencies. The first dependencies must be selected and license-checked at the phase that needs them.
-- The `horyzond` binary intentionally wires `HeadlessBackend` and `RecordingRenderer` only. It must keep compiling without display or graphics system libraries.
-- `horyzond --config-dir PATH` is the isolated execution path for tests and nested instances. Running without that option creates and uses `~/.config/horyzond/` as requested.
+- `examples/` contains local upstream reference repositories. Do not modify, compile, package, or commit it unless explicitly requested.
+- The default `horyzond` build must continue to compile without display or graphics system libraries.
+- Use `horyzond --config-dir PATH` for isolated test and nested instances.
