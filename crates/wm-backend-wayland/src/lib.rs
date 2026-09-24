@@ -194,7 +194,7 @@ mod smithay_boundary {
     use std::time::{Duration, Instant};
 
     use smithay::backend::input::{
-        AbsolutePositionEvent, InputEvent, KeyboardKeyEvent, PointerButtonEvent,
+        AbsolutePositionEvent, ButtonState, InputEvent, KeyboardKeyEvent, PointerButtonEvent,
     };
     use smithay::backend::renderer::element::Kind;
     use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
@@ -693,9 +693,10 @@ mod smithay_boundary {
                     f64::from(state.pointer_location.y),
                 )
                     .into();
-                if let Some((surface, _)) = state
-                    .popup_focus_at(pointer_location)
-                    .or_else(|| state.pointer_focus_at(pointer_location))
+                if event.state() == ButtonState::Pressed
+                    && let Some((surface, _)) = state
+                        .popup_focus_at(pointer_location)
+                        .or_else(|| state.pointer_focus_at(pointer_location))
                 {
                     let keyboard = state.keyboard.clone();
                     keyboard.set_focus(state, Some(surface.clone()), 0.into());
